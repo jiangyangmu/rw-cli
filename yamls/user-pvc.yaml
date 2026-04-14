@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${USER_PVC_NAME}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: ${USER_PVC_SIZE}
+  # This explicitly links this claim to your specific PV
+  volumeName: ${USER_PV_NAME}

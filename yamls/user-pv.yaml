@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${USER_PV_NAME}
+spec:
+  capacity:
+    storage: ${USER_PV_SIZE} # Must match or be less than the actual disk size
+  accessModes:
+    - ReadWriteOnce
+  # This tells K8s NOT to delete the GCE disk if the PV is deleted
+  persistentVolumeReclaimPolicy: Retain 
+  storageClassName: manual
+  csi:
+    driver: pd.csi.storage.gke.io
+    volumeHandle: ${USER_PV_HANDLE}
+    fsType: ext4
