@@ -184,11 +184,11 @@ spec:
               image: ${SERVER_IMAGE}
               imagePullPolicy: Always
               restartPolicy: OnFailure
-              restartPolicyRules:
-              - action: RestartAllContainers
-                exitCodes:
-                  operator: NotIn
-                  values: [0]
+              # restartPolicyRules:
+              # - action: RestartAllContainers
+              #   exitCodes:
+              #     operator: NotIn
+              #     values: [0]
               args:
               - --server_port=29005
               - --resource_manager_address=$$(PATHWAYS_HEAD):29001
