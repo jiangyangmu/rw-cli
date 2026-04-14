@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Usage: [env1=val1] ... cli.sh [command1] [command2] ...
+# Usage: [env1=val1] ... rw-cli.sh [command1] [command2] ...
 #
 # If no commands are provided, the script runs in interactive mode.
 #
@@ -10,26 +10,37 @@
 #   ZONE             - GCP zone (default: us-central1-a)
 #   CLUSTER          - GKE cluster name (default: bodaborg-super-alpha-cluster)
 #   JOBSET_TPU_TYPE  - TPU type (default: tpu7x)
-#   JOBSET_TPU_TOPO  - TPU topology (default: 4x4x8)
-#   JOBSET_NAME      - Name of the JobSet (default: ${USER}-v7x-${NUM_CHIPS})
+#   JOBSET_TPU_TOPO  - TPU topology (default: 4x4x4)
+#   JOBSET_NAME      - Name of the JobSet (default: ${USER}-workspace)
 #
 # Available commands:
 #   login           - Get GKE credentials and set context
 #   list-jobs       - List jobs for the current JobSet
 #   list-jobs-all   - List all jobs in the namespace
 #   list-pods       - List pods for the current JobSet
+#   list-nodes      - List TPU nodes with specific topology labels
 #   server-start    - Generate JobSet YAML, apply it, and start the server
 #   server-stop     - Delete the JobSet and wait for termination
 #   server-wait     - Wait for pods to be in running state
+#   head-restart    - Restart the head node
+#   worker-restart  - Restart one of the worker nodes
+#   ssh-init        - Initialize the remote workspace (add user, home, venv)
+#   ssh-root        - SSH to the head node as root
+#   ssh             - SSH to the head node as the current user
+#   sync-init       - One-time sync from local to remote workspace
+#   sync            - Start continuous sync from local to remote workspace
 #   log-head        - Show logs for the head node
 #   log-worker      - Show logs for one of the worker nodes
 #   desc-pods       - Describe pods for the current JobSet
 #   desc-jobset     - Describe the current JobSet
 #   desc-workload   - Describe the current workload
 #   server-config   - Get JobSet configuration in YAML format
+#   disk-register   - Register the persistent disk (PV and PVC)
+#   disk-unregister - Unregister the persistent disk (PV and PVC)
 #   proxy-list      - List proxy pods
 #   proxy-kill      - Delete proxy pods
 #   port-forward    - Start port forwarding to the head node (port 29000)
+#   port-forward-kill - Stop port forwarding
 #   dash            - Print the Google Cloud Console dashboard URL
 #   quit            - Exit the script
 #
