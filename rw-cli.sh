@@ -300,13 +300,12 @@ while true; do
       continue
     fi
 
-    # TODO: maybe use local files (inline)
-    echo "[root] add user $USER to $HEAD_POD (set password)"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/bash "${WORKSPACE_REMOTE_ROOT}/rw-cli/scripts/add_user.sh" "$USER" || continue
-    echo "[$USER] init user home on $HEAD_POD (need password)"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export DISK_MOUNT_PATH=${WORKSPACE_REMOTE_ROOT}; bash ${WORKSPACE_REMOTE_ROOT}/rw-cli/scripts/init_home.sh" || continue
-    echo "[$USER] init venv on $HEAD_POD (need password)"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; bash ${WORKSPACE_REMOTE_ROOT}/rw-cli/scripts/init_venv.sh"
+    echo "[root] add user $USER to $HEAD_POD"
+    kubectl exec -i "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/bash -s "$USER" < "${SCRIPT_ROOT}/scripts/add_user.sh" || continue
+    echo "[$USER] init user home on $HEAD_POD"
+    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export DISK_MOUNT_PATH=${WORKSPACE_REMOTE_ROOT}; bash -s" < "${SCRIPT_ROOT}/scripts/init_home.sh" || continue
+    echo "[$USER] init venv on $HEAD_POD"
+    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; bash -s" < "${SCRIPT_ROOT}/scripts/init_venv.sh"
     ;;
   ssh-root)
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})

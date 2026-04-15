@@ -15,7 +15,9 @@ fi
 set -e
 
 if [ ! -d "/home/$NEW_USER" ]; then
-  adduser "$NEW_USER"
+  adduser --disabled-password --gecos "" "$NEW_USER"
+  echo "$NEW_USER:12345" | chpasswd
+
   usermod -aG sudo "$NEW_USER"
   usermod -aG root "$NEW_USER"
   apt-get update
