@@ -127,7 +127,7 @@ SCRIPT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 
 # go to script root
 cd $SCRIPT_ROOT
-source "utils.sh"
+source "src/utils.sh"
 
 # enter kube context
 export KUBECONFIG="$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER"
@@ -166,7 +166,7 @@ generate_jobset_yaml() {
   TMPL_FLAGS+=" --user_pvc_name=${WORKSPACE_DISK_PVC_NAME}"
   TMPL_FLAGS+=" --user_disk_mount_path=${WORKSPACE_REMOTE_ROOT}"
 
-  python3 yaml_gen_jobset.py "$TMPL_FILE" \
+  python3 src/yaml_gen_jobset.py "$TMPL_FILE" \
     --jobset_name="$JOBSET_NAME" \
     --server_image="$IMAGE_PATHWAYS_SERVER" \
     --proxy_image="$IMAGE_PATHWAYS_PROXY_SERVER" \
@@ -176,7 +176,7 @@ generate_jobset_yaml() {
 
 generate_pv_yaml() {
   TMPL_FILE="yamls/user-pv.yaml"
-  python3 yaml_gen_pv.py "$TMPL_FILE" \
+  python3 src/yaml_gen_pv.py "$TMPL_FILE" \
     --user_pv_name="${WORKSPACE_DISK_PV_NAME}" \
     --user_pv_handle="${WORKSPACE_DISK_CSI_HANDLE}" \
     --user_pv_size="${WORKSPACE_DISK_SIZE}"
@@ -184,7 +184,7 @@ generate_pv_yaml() {
 
 generate_pvc_yaml() {
   TMPL_FILE="yamls/user-pvc.yaml"
-  python3 yaml_gen_pvc.py "$TMPL_FILE" \
+  python3 src/yaml_gen_pvc.py "$TMPL_FILE" \
     --user_pvc_name="${WORKSPACE_DISK_PVC_NAME}" \
     --user_pvc_size="${WORKSPACE_DISK_SIZE}" \
     --user_pv_name="${WORKSPACE_DISK_PV_NAME}"
