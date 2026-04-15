@@ -333,7 +333,8 @@ while true; do
         --exclude="${WORKSPACE_SYNC_EXCLUDE}" \
         --namespace=default \
         --label-selector=batch.kubernetes.io/job-name=${JOBSET_NAME}-pathways-head-0 \
-        --container="$WORKSPACE_CONTAINER"
+        --container="$WORKSPACE_CONTAINER" \
+        --upload-only
     fi
     ;;
   log-head)
