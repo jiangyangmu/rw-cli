@@ -39,7 +39,7 @@
 #   disk-unregister - Unregister the persistent disk (PV and PVC)
 #   proxy-list      - List proxy pods
 #   proxy-kill      - Delete proxy pods
-#   port-forward    - Start port forwarding to the head node (port 29000)
+#   port-forward    - Start port forwarding to the head node (defaut: forward 29000)
 #   port-forward-kill - Stop port forwarding
 #   dash            - Print the Google Cloud Console dashboard URL
 #   quit            - Exit the script
@@ -52,47 +52,74 @@ source "/mnt/disks/github/.venv/3.12/k8s/bin/activate"
 
 ## jobset
 
-export PROJECT="${PROJECT:-cloud-tpu-multipod-dev}"
-export REGION="${REGION:-us-central1}"
-export ZONE="${ZONE:-us-central1-a}"
-export CLUSTER="${CLUSTER:-bodaborg-super-alpha-cluster}"
+export PROJECT="${PROJECT:-}"
+export REGION="${REGION:-}"
+export ZONE="${ZONE:-}"
+export CLUSTER="${CLUSTER:-}"
 
-export JOBSET_TPU_TYPE="${JOBSET_TPU_TYPE:-tpu7x}"
-export JOBSET_TPU_TOPO="${JOBSET_TPU_TOPO:-4x4x4}"
+export JOBSET_TPU_TYPE="${JOBSET_TPU_TYPE:-}"
+export JOBSET_TPU_TOPO="${JOBSET_TPU_TOPO:-}"
 
-export JOBSET_NAME="${JOBSET_NAME:-${USER}-workspace}"
+export JOBSET_NAME="${JOBSET_NAME:-}"
 
-export GCS_BUCKET="${GCS_BUCKET:-gs://$USER-$REGION}"
+export GCS_BUCKET="${GCS_BUCKET:-}"
 
 ## container images
 
-export IMAGE_PATHWAYS_SERVER="${IMAGE_PATHWAYS_SERVER:-us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_server:latest}"
-export IMAGE_PATHWAYS_PROXY_SERVER="${IMAGE_PATHWAYS_PROXY_SERVER:-us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_proxy_server:latest}"
-export IMAGE_WORKSPACE="${IMAGE_WORKSPACE:-vllm/vllm-tpu:latest}"
+export IMAGE_PATHWAYS_SERVER="${IMAGE_PATHWAYS_SERVER:-}"
+export IMAGE_PATHWAYS_PROXY_SERVER="${IMAGE_PATHWAYS_PROXY_SERVER:-}"
+export IMAGE_WORKSPACE="${IMAGE_WORKSPACE:-}"
 
 ## remote workspace
 
-export WORKSPACE_CONTAINER="${WORKSPACE_CONTAINER:-workspace-main}"
+export WORKSPACE_CONTAINER="${WORKSPACE_CONTAINER:-}"
+
+export WORKSPACE_JOBSET_TMPL="${WORKSPACE_JOBSET_TMPL:-}"
 
 # disk settings
 # TODO: create your own disk (must be in the same zone as jobset, otherwise, the jobset fails due to disk mount failure)
 # $ gcloud compute disks create $USER-workspace-disk --size=512GB --zone=us-central1-ai1a --project=cloud-tpu-multipod-dev
-export WORKSPACE_DISK_SIZE="${WORKSPACE_DISK_SIZE:-512Gi}"
-export WORKSPACE_DISK_CSI_HANDLE="projects/cloud-tpu-multipod-dev/zones/us-central1-ai1a/disks/$USER-workspace-disk"
-export WORKSPACE_DISK_PV_NAME="${USER}-pv"
-export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
+export WORKSPACE_DISK_SIZE="${WORKSPACE_DISK_SIZE:-}"
+export WORKSPACE_DISK_CSI_HANDLE="${WORKSPACE_DISK_CSI_HANDLE:-}"
+export WORKSPACE_DISK_PV_NAME="${WORKSPACE_DISK_PV_NAME-}"
+export WORKSPACE_DISK_PVC_NAME="${WORKSPACE_DISK_PVC_NAME-}"
 
 # sync settings
-export WORKSPACE_REMOTE_ROOT="${WORKSPACE_REMOTE_ROOT:-/mnt/disks/github}" # mirrored remote codebase (disk mount path)
+export WORKSPACE_REMOTE_ROOT="${WORKSPACE_REMOTE_ROOT:-}" # mirrored remote codebase (disk mount path)
 export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # TODO: set your local codebase
-export WORKSPACE_SYNC_EXCLUDE="lost\+found,.cache,.venv,.git,.jax_cache,.pytest_cache,.bin,.home,.old,.data,.models"
+export WORKSPACE_SYNC_EXCLUDE="${WORKSPACE_SYNC_EXCLUDE:-lost\+found,__pycache__,.cache,.venv,.git,.jax_cache,.pytest_cache,.bin,.home}"
 
 # ============= Your TODOs end =============
 
 # sanity check of environment variables
+REQUIRED_VARS=(
+  PROJECT REGION ZONE CLUSTER 
+  JOBSET_TPU_TYPE JOBSET_TPU_TOPO JOBSET_NAME GCS_BUCKET
+  IMAGE_PATHWAYS_SERVER IMAGE_PATHWAYS_PROXY_SERVER IMAGE_WORKSPACE 
+  WORKSPACE_CONTAINER WORKSPACE_JOBSET_TMPL
+  WORKSPACE_DISK_SIZE WORKSPACE_DISK_CSI_HANDLE 
+  WORKSPACE_DISK_PV_NAME WORKSPACE_DISK_PVC_NAME
+  WORKSPACE_REMOTE_ROOT WORKSPACE_LOCAL_ROOT
+)
+for var in "${REQUIRED_VARS[@]}"; do
+  if [ -z "${!var}" ]; then
+    echo "Error: Environment variable $var is not set."
+    exit 1
+  fi
+done
 if [ ${#JOBSET_NAME} -gt 15 ]; then
   echo "Error: JOBSET_NAME '$JOBSET_NAME' is too long (${#JOBSET_NAME} chars). Max 15 chars allowed."
-  echo "Please set JOBSET_NAME."
+  exit 1
+fi
+if [[ ! "$WORKSPACE_DISK_CSI_HANDLE" == *"$PROJECT"* ]]; then
+  echo "Error: WORKSPACE_DISK_CSI_HANDLE does not contain PROJECT '$PROJECT'."
+  echo "WORKSPACE_DISK_CSI_HANDLE=$WORKSPACE_DISK_CSI_HANDLE"
+  exit 1
+fi
+
+# gcloud auth check
+if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
+  echo "No active gcloud account found. Please run 'gcloud auth login'."
   exit 1
 fi
 
@@ -103,19 +130,21 @@ cd $SCRIPT_ROOT
 source "utils.sh"
 
 # enter kube context
-export KUBECONFIG="$HOME/.kube/config.$JOBSET_NAME" # use separate kube config for jobset (not fully tested, only happy paths)
+export KUBECONFIG="$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER"
 if ! [ -f "$KUBECONFIG" ]; then
     gcloud container clusters get-credentials $CLUSTER --region=$REGION --project=$PROJECT --dns-endpoint && \
     kubectl config set-context --current --namespace=default && \
     kubectl get namespaces
 fi
-kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" >/dev/null && echo "cluster: ${CLUSTER}"
+kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" 2>/dev/null || { echo "kubectl use-context failed"; exit 1; }
 
 # detect run mode
 if [ -z "$1" ]; then
   INTERACTIVE=true
+  echo "cluster: ${CLUSTER}"
   echo "jobset: ${JOBSET_NAME}"
   echo "tpu:    ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
+  echo "tmpl:   ${WORKSPACE_JOBSET_TMPL}"
   echo "local:  ${WORKSPACE_LOCAL_ROOT}"
   echo "remote: ${WORKSPACE_REMOTE_ROOT}"
   echo
@@ -130,7 +159,7 @@ generate_jobset_yaml() {
   # TMPL_FILE="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.yaml"
   # TMPL_FLAGS=""
 
-  TMPL_FILE="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.remote-workspace.yaml"
+  TMPL_FILE="${WORKSPACE_JOBSET_TMPL}"
   TMPL_FLAGS=""
   TMPL_FLAGS+=" --user_container=${WORKSPACE_CONTAINER}"
   TMPL_FLAGS+=" --user_container_image=${IMAGE_WORKSPACE}"
@@ -185,34 +214,33 @@ while true; do
   list-pods)
     kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME"
     ;;
+  list-queues)
+    kubectl get queues
+    ;;
   list-nodes)
     kubectl get nodes -l cloud.google.com/gke-tpu-partition-$JOBSET_TPU_TOPO-id
     ;;
   server-start)
     generate_jobset_yaml | kubectl apply -f - && echo "applied $JOBSET_NAME"
+    sleep 1
 
     WORKLOAD=$(kubectl get workloads | grep "$JOBSET_NAME" | awk '{print $1}')
     if [ -z "$WORKLOAD" ]; then
       continue
     fi
 
-    until kubectl describe workload "$WORKLOAD" | egrep -q "SlicesCreated|FailedCreateSlice|EvictedDueToAdmissionCheck"; do
+    ok_regex="Admitted by"
+    error_regex="FailedCreateSlice|EvictedDueToAdmissionCheck|couldn't assign flavors|LocalQueue lq doesn't exist"
+    until kubectl describe workload "$WORKLOAD" | egrep -q "$ok_regex|$error_regex"; do
       echo -n "."; sleep 1
     done
-    if kubectl describe workload "$WORKLOAD" | egrep -q "FailedCreateSlice|EvictedDueToAdmissionCheck"; then
-      kubectl describe workload "$WORKLOAD" | egrep "FailedCreateSlice|EvictedDueToAdmissionCheck"; continue
+    if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
+      kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
     fi
-    echo "SlicesCreated"
+    kubectl describe workload "$WORKLOAD" | egrep "$ok_regex"
 
-    kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
-    kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
-
-    while true; do
-      kubectl describe workload "$WORKLOAD" | grep -q "Admitted" && break
-      echo -n "."
-      sleep 1
-    done
-    echo "Admitted"
+    # kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
+    # kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
     ;;
   server-stop)
     generate_jobset_yaml | kubectl delete -f - && echo "deleted $JOBSET_NAME" || continue
@@ -318,6 +346,18 @@ while true; do
   desc-pods)
     kubectl describe pods -l jobset.sigs.k8s.io/jobset-name=$JOBSET_NAME
     ;;
+  desc-head)
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+    kubectl describe pods $HEAD_POD
+    ;;
+  desc-worker)
+    WORKER_POD=$(kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
+    kubectl describe pods $WORKER_POD
+    ;;
+  desc-node)
+    NODE_NAME=$(kubectl get nodes | grep gke-tpu- | head -n 1 | awk '{print $1}')
+    kubectl describe node $NODE_NAME
+    ;;
   desc-jobset)
     kubectl describe jobset "$JOBSET_NAME"
     ;;
@@ -338,6 +378,8 @@ while true; do
     ;;
   disk-unregister)
     generate_pvc_yaml | kubectl delete -f - && echo "unregistered $USER-pvc"
+    # if fails, goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$USER-pv/details?project=$PROJECT
+    # manually remove finalizer content. (be cautious, make sure you know what you are doing)
     generate_pv_yaml | kubectl delete -f - && echo "unregistered $USER-pv"
     ;;
   proxy-list)
@@ -347,10 +389,10 @@ while true; do
     kubectl delete pods $(kubectl get pods | egrep "^isc-(proxy-$USER|${JOBSET_NAME})" | awk '{print $1}')
     ;;
   port-forward)
-    if ps aux | grep "kubectl port-forward" | grep -q -v grep; then
-      echo "port-forward is already running"
+    FORWARD_PORT="${FORWARD_PORT:-29000}"
+    if ps aux | egrep "kubectl port-forward.*$FORWARD_PORT:$FORWARD_PORT" | grep -q -v grep; then
+      echo "port-forward on port ${FORWARD_PORT} is already running"
     else
-      FORWARD_PORT="${FORWARD_PORT:-29000}"
       HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
       # localhost:FORWARD_PORT <=> HEAD_POD:FORWARD_PORT
       kubectl port-forward ${HEAD_POD} ${FORWARD_PORT}:${FORWARD_PORT} >/dev/null 2>/dev/null &

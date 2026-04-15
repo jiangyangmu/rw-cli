@@ -1,0 +1,51 @@
+## jobset
+
+export PROJECT="tpu-prod-env-automated"
+export REGION="us-central1"
+export ZONE="us-central1-c"
+export CLUSTER="tunix-v7x-128"
+
+export JOBSET_TPU_TYPE="tpu7x"
+export JOBSET_TPU_TOPO="4x4x4"
+
+export JOBSET_NAME="${USER}-work"
+
+export GCS_BUCKET="gs://$USER-$REGION"
+
+## container images
+
+export IMAGE_PATHWAYS_SERVER="us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_server:latest"
+export IMAGE_PATHWAYS_PROXY_SERVER="us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_proxy_server:latest"
+export IMAGE_WORKSPACE="vllm/vllm-tpu:latest"
+
+## remote workspace
+
+export WORKSPACE_CONTAINER="workspace-main"
+
+export WORKSPACE_JOBSET_TMPL="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.$CLUSTER.yaml"
+
+# disk settings
+export WORKSPACE_DISK_NAME="$USER-workspace-disk"
+export WORKSPACE_DISK_SIZE="512Gi"
+
+if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$ZONE --project=$PROJECT 2>&1 1>/dev/null; then
+  echo "$WORKSPACE_DISK_NAME found."
+else
+  echo -n "Disk $WORKSPACE_DISK_NAME not found. Create it? (y/n) "
+  read -r REPLY
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$ZONE --project=$PROJECT && echo "$WORKSPACE_DISK_NAME created"
+  fi
+fi
+
+export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$ZONE/disks/$WORKSPACE_DISK_NAME"
+export WORKSPACE_DISK_PV_NAME="${USER}-pv"
+export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
+
+# sync settings
+export WORKSPACE_REMOTE_ROOT="/mnt/disks/github" # mirrored remote codebase (disk mount path)
+export WORKSPACE_LOCAL_ROOT="/mnt/disks/github" # set your local codebase
+export WORKSPACE_SYNC_EXCLUDE="lost\+found,__pycache__,.cache,.venv,.git,.jax_cache,.pytest_cache,.bin,.home,.old,.data,.models"
+
+# kubectl
+export KUBECONFIG="$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER"
