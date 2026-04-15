@@ -220,6 +220,23 @@ while true; do
   list-nodes)
     kubectl get nodes -l cloud.google.com/gke-tpu-partition-$JOBSET_TPU_TOPO-id
     ;;
+  server-yaml)
+    read -e -p "Output file [${JOBSET_NAME}.yaml]: " yaml_file
+    yaml_file="${yaml_file:-${JOBSET_NAME}.yaml}"
+    if [ -f "$yaml_file" ]; then
+      echo -n "File $yaml_file already exists. Overwrite? (y/n) "
+      read -r REPLY
+      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Aborted."
+        continue
+      fi
+    fi
+    if generate_jobset_yaml > "$yaml_file"; then
+      echo "JobSet YAML written to $yaml_file"
+    else
+      echo "Error: Failed to generate JobSet YAML"
+    fi
+    ;;
   server-start)
     generate_jobset_yaml | kubectl apply -f - && echo "applied $JOBSET_NAME"
     sleep 1
