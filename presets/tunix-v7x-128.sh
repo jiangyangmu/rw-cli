@@ -27,19 +27,20 @@ export WORKSPACE_JOBSET_TMPL="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.$CLUSTER.yaml
 # disk settings
 export WORKSPACE_DISK_NAME="$USER-workspace-disk"
 export WORKSPACE_DISK_SIZE="512Gi"
+export WORKSPACE_DISK_ZONE=$ZONE
 
-if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$ZONE --project=$PROJECT 2>&1 1>/dev/null; then
+if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT 2>&1 1>/dev/null; then
   echo "$WORKSPACE_DISK_NAME found."
 else
   echo -n "Disk $WORKSPACE_DISK_NAME not found. Create it? (y/n) "
   read -r REPLY
   if [[ $REPLY =~ ^[Yy]$ ]]; then
-    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$ZONE --project=$PROJECT \
-    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/$ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
+    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT \
+    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
   fi
 fi
 
-export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$ZONE/disks/$WORKSPACE_DISK_NAME"
+export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME"
 export WORKSPACE_DISK_PV_NAME="${USER}-pv"
 export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
 

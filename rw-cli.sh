@@ -409,6 +409,10 @@ while true; do
   dash)
     echo "https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/default/$JOBSET_NAME/overview?project=$PROJECT"
     ;;
+  dash-all)
+    echo "jobs: https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/default/$JOBSET_NAME/overview?project=$PROJECT"
+    echo "disk: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
+    ;;
   quit)
     exit 0
     ;;

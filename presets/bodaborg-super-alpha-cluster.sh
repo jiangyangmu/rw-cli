@@ -24,30 +24,23 @@ export WORKSPACE_CONTAINER="workspace-main"
 
 export WORKSPACE_JOBSET_TMPL="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.$CLUSTER.yaml"
 
-# # disk settings
-# if gcloud compute disks create $USER-workspace-disk --size=512GB --zone=us-central1-ai1a --project=$PROJECT 2>/dev/null; then
-#   echo "$USER-workspace-disk created: https://pantheon.corp.google.com/compute/disksDetail/zones/us-central1-ai1a/disks/$USER-workspace-disk?e=13802955&inv=1&invt=AbxNlg&mods=dataflow_dev&project=cloud-tpu-inference-test"
-# else
-#   echo "$USER-workspace-disk already exists, skipping creation"
-# fi
-# export WORKSPACE_DISK_SIZE="512Gi"
-
 # disk settings
 export WORKSPACE_DISK_NAME="$USER-workspace-disk"
 export WORKSPACE_DISK_SIZE="512Gi"
+export WORKSPACE_DISK_ZONE="us-central1-ai1a"
 
-if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=us-central1-ai1a --project=$PROJECT 2>&1 1>/dev/null; then
+if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT 2>&1 1>/dev/null; then
   echo "$WORKSPACE_DISK_NAME found."
 else
   echo -n "Disk $WORKSPACE_DISK_NAME not found. Create it? (y/n) "
   read -r REPLY
   if [[ $REPLY =~ ^[Yy]$ ]]; then
-    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=us-central1-ai1a --project=$PROJECT \
-    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/us-central1-ai1a/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
+    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT \
+    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
   fi
 fi
 
-export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/us-central1-ai1a/disks/$USER-workspace-disk"
+export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/disks/$USER-workspace-disk"
 export WORKSPACE_DISK_PV_NAME="${USER}-pv"
 export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
 
