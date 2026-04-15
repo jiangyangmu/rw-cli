@@ -34,7 +34,8 @@ else
   echo -n "Disk $WORKSPACE_DISK_NAME not found. Create it? (y/n) "
   read -r REPLY
   if [[ $REPLY =~ ^[Yy]$ ]]; then
-    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$ZONE --project=$PROJECT && echo "$WORKSPACE_DISK_NAME created"
+    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$ZONE --project=$PROJECT \
+    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/$ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
   fi
 fi
 
