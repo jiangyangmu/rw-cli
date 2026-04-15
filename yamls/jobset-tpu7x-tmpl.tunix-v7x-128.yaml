@@ -117,7 +117,7 @@ spec:
               - --server_port=29000
               - --resource_manager_address=$$(PATHWAYS_HEAD):29001
               - --gcs_scratch_location=${GCS_SCRATCH_LOCATION}
-              - --virtual_slices=tpu7x:2x2x1
+              # - --virtual_slices=tpu7x:2x2x1
               env:
               - name: PATHWAYS_HEAD
                 valueFrom:

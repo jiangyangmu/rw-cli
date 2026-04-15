@@ -8,7 +8,7 @@ export CLUSTER="bodaborg-super-alpha-cluster"
 export JOBSET_TPU_TYPE="tpu7x"
 export JOBSET_TPU_TOPO="4x4x4"
 
-export JOBSET_NAME="${USER}-workspace"
+export JOBSET_NAME="${USER}-ws"
 
 export GCS_BUCKET="gs://$USER-$REGION"
 
