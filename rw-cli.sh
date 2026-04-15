@@ -92,6 +92,20 @@ export WORKSPACE_SYNC_EXCLUDE="${WORKSPACE_SYNC_EXCLUDE:-lost\+found,__pycache__
 # ============= Your TODOs end =============
 
 # sanity check of environment variables
+if [ -z "$JOBSET_NAME" ]; then
+  echo "Error: JOBSET_NAME is not set."
+  echo "Please run 'source presets/<your-cluster>.sh' to initialize the environment."
+  exit 1
+fi
+if [ ${#JOBSET_NAME} -gt 15 ]; then
+  echo "Error: JOBSET_NAME '$JOBSET_NAME' is too long (${#JOBSET_NAME} chars). Max 15 chars allowed."
+  exit 1
+fi
+if [[ ! "$WORKSPACE_DISK_CSI_HANDLE" == *"$PROJECT"* ]]; then
+  echo "Error: WORKSPACE_DISK_CSI_HANDLE does not contain PROJECT '$PROJECT'."
+  echo "WORKSPACE_DISK_CSI_HANDLE=$WORKSPACE_DISK_CSI_HANDLE"
+  exit 1
+fi
 REQUIRED_VARS=(
   PROJECT REGION ZONE CLUSTER 
   JOBSET_TPU_TYPE JOBSET_TPU_TOPO JOBSET_NAME GCS_BUCKET
@@ -107,15 +121,6 @@ for var in "${REQUIRED_VARS[@]}"; do
     exit 1
   fi
 done
-if [ ${#JOBSET_NAME} -gt 15 ]; then
-  echo "Error: JOBSET_NAME '$JOBSET_NAME' is too long (${#JOBSET_NAME} chars). Max 15 chars allowed."
-  exit 1
-fi
-if [[ ! "$WORKSPACE_DISK_CSI_HANDLE" == *"$PROJECT"* ]]; then
-  echo "Error: WORKSPACE_DISK_CSI_HANDLE does not contain PROJECT '$PROJECT'."
-  echo "WORKSPACE_DISK_CSI_HANDLE=$WORKSPACE_DISK_CSI_HANDLE"
-  exit 1
-fi
 
 # gcloud auth check
 if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
