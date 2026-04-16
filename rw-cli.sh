@@ -1,48 +1,62 @@
 #!/bin/bash
 #
-# Usage: [env1=val1] ... rw-cli.sh [command1] [command2] ...
+# Usage:
+#   source presets/<cluster>.sh; ./rw-cli.sh [command1] [command2] ...
 #
-# If no commands are provided, the script runs in interactive mode.
-#
-# Environment variables:
-#   PROJECT          - GCP project ID (default: cloud-tpu-multipod-dev)
-#   REGION           - GCP region (default: us-central1)
-#   ZONE             - GCP zone (default: us-central1-a)
-#   CLUSTER          - GKE cluster name (default: bodaborg-super-alpha-cluster)
-#   JOBSET_TPU_TYPE  - TPU type (default: tpu7x)
-#   JOBSET_TPU_TOPO  - TPU topology (default: 4x4x4)
-#   JOBSET_NAME      - Name of the JobSet (default: ${USER}-workspace)
+# Interactive Mode:
+#   If no commands are provided, the script runs in interactive mode.
 #
 # Available commands:
-#   login           - Get GKE credentials and set context
-#   list-jobs       - List jobs for the current JobSet
-#   list-jobs-all   - List all jobs in the namespace
-#   list-pods       - List pods for the current JobSet
-#   list-nodes      - List TPU nodes with specific topology labels
-#   server-start    - Generate JobSet YAML, apply it, and start the server
-#   server-stop     - Delete the JobSet and wait for termination
-#   server-wait     - Wait for pods to be in running state
-#   head-restart    - Restart the head node
-#   worker-restart  - Restart one of the worker nodes
-#   ssh-init        - Initialize the remote workspace (add user, home, venv)
-#   ssh-root        - SSH to the head node as root
-#   ssh             - SSH to the head node as the current user
-#   sync-init       - One-time sync from local to remote workspace
-#   sync            - Start continuous sync from local to remote workspace
-#   log-head        - Show logs for the head node
-#   log-worker      - Show logs for one of the worker nodes
-#   desc-pods       - Describe pods for the current JobSet
-#   desc-jobset     - Describe the current JobSet
-#   desc-workload   - Describe the current workload
-#   server-config   - Get JobSet configuration in YAML format
-#   disk-register   - Register the persistent disk (PV and PVC)
-#   disk-unregister - Unregister the persistent disk (PV and PVC)
-#   proxy-list      - List proxy pods
-#   proxy-kill      - Delete proxy pods
-#   port-forward    - Start port forwarding to the head node (defaut: forward 29000)
-#   port-forward-kill - Stop port forwarding
-#   dash            - Print the Google Cloud Console dashboard URL
-#   quit            - Exit the script
+#
+#   [Setup & Auth]
+#     bootstrap       - One-step setup: server-start, disk-init, and ssh-init
+#     disk-init       - After disk creation. One-time sync from local to remote workspace
+#     ssh-init        - After server start. Initialize the remote workspace (add user, home, venv)
+#
+#   [Lifecycle]
+#     server-start    - Generate JobSet YAML, apply it, and start the server
+#     server-stop     - Delete the JobSet and wait for termination
+#     server-wait     - Wait for pods to be in running state
+#     server-yaml     - Generate and save JobSet YAML to a file
+#     server-config   - Get current JobSet configuration in YAML format
+#
+#   [Development]
+#     ssh             - SSH to the head node as the current user
+#     ssh-root        - SSH to the head node as root
+#     sync            - Start continuous sync from local to remote workspace
+#     port-forward    - Start port forwarding to the head node (default port: 29000)
+#     port-forward-kill - Stop port forwarding
+#
+#   [Inspection]
+#     list-jobs       - List jobs for the current JobSet
+#     list-jobs-all   - List all jobs in the namespace
+#     list-pods       - List pods for the current JobSet
+#     list-nodes      - List TPU nodes with specific topology labels
+#     list-queues     - List Kueue queues
+#     log-head        - Show logs for the head node
+#     log-worker      - Show logs for one of the worker nodes
+#     desc-jobset     - Describe the current JobSet
+#     desc-workload   - Describe the current workload
+#     desc-pods       - Describe pods for the current JobSet
+#     desc-head       - Describe the head pod
+#     desc-worker     - Describe a worker pod
+#     desc-node       - Describe a TPU node
+#     dash            - Print the Google Cloud Console dashboard URL
+#     dash-all        - Print dashboard URLs for jobs and disks
+#
+#   [Troubleshooting]
+#     head-restart    - Restart the head node
+#     worker-restart  - Restart one of the worker nodes
+#     proxy-list      - List proxy pods
+#     proxy-kill      - Delete proxy pods
+#
+#   [Cleanup]
+#     disk-cleanup    - Remove all disk resources. Make sure the server is down before run this
+#     disk-register   - On-demand. Register the persistent disk (PV and PVC)
+#     disk-unregister - On-demand. Unregister the persistent disk (PV and PVC)
+#
+#   [Control]
+#     quit            - Exit interactive mode
 #
 set -e
 
@@ -77,7 +91,9 @@ export WORKSPACE_CONTAINER="${WORKSPACE_CONTAINER:-}"
 export WORKSPACE_JOBSET_TMPL="${WORKSPACE_JOBSET_TMPL:-}"
 
 # disk settings
+export WORKSPACE_DISK_NAME="${WORKSPACE_DISK_NAME:-}"
 export WORKSPACE_DISK_SIZE="${WORKSPACE_DISK_SIZE:-}"
+export WORKSPACE_DISK_ZONE="${WORKSPACE_DISK_ZONE:-}"
 export WORKSPACE_DISK_CSI_HANDLE="${WORKSPACE_DISK_CSI_HANDLE:-}"
 export WORKSPACE_DISK_PV_NAME="${WORKSPACE_DISK_PV_NAME-}"
 export WORKSPACE_DISK_PVC_NAME="${WORKSPACE_DISK_PVC_NAME-}"
@@ -105,12 +121,12 @@ if [[ ! "$WORKSPACE_DISK_CSI_HANDLE" == *"$PROJECT"* ]]; then
   exit 1
 fi
 REQUIRED_VARS=(
-  PROJECT REGION ZONE CLUSTER 
+  PROJECT REGION ZONE CLUSTER
   JOBSET_TPU_TYPE JOBSET_TPU_TOPO JOBSET_NAME GCS_BUCKET
-  IMAGE_PATHWAYS_SERVER IMAGE_PATHWAYS_PROXY_SERVER IMAGE_WORKSPACE 
+  IMAGE_PATHWAYS_SERVER IMAGE_PATHWAYS_PROXY_SERVER IMAGE_WORKSPACE
   WORKSPACE_CONTAINER WORKSPACE_JOBSET_TMPL
-  WORKSPACE_DISK_SIZE WORKSPACE_DISK_CSI_HANDLE 
-  WORKSPACE_DISK_PV_NAME WORKSPACE_DISK_PVC_NAME
+  WORKSPACE_DISK_NAME WORKSPACE_DISK_SIZE WORKSPACE_DISK_ZONE
+  WORKSPACE_DISK_CSI_HANDLE WORKSPACE_DISK_PV_NAME WORKSPACE_DISK_PVC_NAME
   WORKSPACE_REMOTE_ROOT WORKSPACE_LOCAL_ROOT
 )
 for var in "${REQUIRED_VARS[@]}"; do
@@ -211,11 +227,6 @@ while true; do
   fi
 
   case $action in
-  login)
-    gcloud container clusters get-credentials $CLUSTER --region=$REGION --project=$PROJECT --dns-endpoint && \
-    kubectl config set-context --current --namespace=default && \
-    kubectl get namespaces
-    ;;
   list-jobs)
     kubectl get jobs --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME"
     ;;
@@ -302,7 +313,7 @@ while true; do
 
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
     if kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/sh -c "! [ -d '${WORKSPACE_REMOTE_ROOT}/rw-cli/' ]" 2>/dev/null; then
-      echo "error: rw-cli not found on remote workspace disk, please run 'sync-init' to init disk."
+      echo "error: rw-cli not found on remote workspace disk, please run 'disk-init' to init disk."
       continue
     fi
 
@@ -323,7 +334,20 @@ while true; do
     echo "ssh to $HEAD_POD"
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "$USER"
     ;;
-  sync-init)
+  bootstrap)
+    ACTIONS=("server-start" "disk-init" "ssh-init" "${ACTIONS[@]}")
+    ;;
+  disk-init)
+    if ! kubectl get jobset "$JOBSET_NAME" &>/dev/null; then
+      echo "Error: JobSet '$JOBSET_NAME' is not running. Please run 'server-start' first."
+      continue
+    fi
+    if kubectl get pv | grep -q "$WORKSPACE_DISK_PV_NAME"; then echo "$WORKSPACE_DISK_PV_NAME already registered"; else
+      generate_pv_yaml | kubectl apply -f - && echo "registered $WORKSPACE_DISK_PV_NAME" || continue
+    fi
+    if kubectl get pvc | grep -q "$WORKSPACE_DISK_PVC_NAME"; then echo "$WORKSPACE_DISK_PVC_NAME already registered"; else
+      generate_pvc_yaml | kubectl apply -f - && echo "registered $WORKSPACE_DISK_PVC_NAME"
+    fi
     if [[ -z "$WORKSPACE_LOCAL_ROOT" ]]; then
       echo "Error: WORKSPACE_LOCAL_ROOT is not set."
       echo "Please set WORKSPACE_LOCAL_ROOT."
@@ -397,18 +421,45 @@ while true; do
     kubectl get jobset "$JOBSET_NAME" -o yaml
     ;;
   disk-register)
-    if kubectl get pv | grep -q "$USER-pv"; then echo "$USER-pv already registered"; else
-      generate_pv_yaml | kubectl apply -f - && echo "registered $USER-pv" || continue
+    if kubectl get pv | grep -q "$WORKSPACE_DISK_PV_NAME"; then echo "$WORKSPACE_DISK_PV_NAME already registered"; else
+      generate_pv_yaml | kubectl apply -f - && echo "registered $WORKSPACE_DISK_PV_NAME" || continue
     fi
-    if kubectl get pvc | grep -q "$USER-pvc"; then echo "$USER-pvc already registered"; else
-      generate_pvc_yaml | kubectl apply -f - && echo "registered $USER-pvc"
+    if kubectl get pvc | grep -q "$WORKSPACE_DISK_PVC_NAME"; then echo "$WORKSPACE_DISK_PVC_NAME already registered"; else
+      generate_pvc_yaml | kubectl apply -f - && echo "registered $WORKSPACE_DISK_PVC_NAME"
     fi
     ;;
   disk-unregister)
-    generate_pvc_yaml | kubectl delete -f - && echo "unregistered $USER-pvc"
-    # if fails, goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$USER-pv/details?project=$PROJECT
+    generate_pvc_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PVC_NAME"
+    # if pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$USER-pv/details?project=$PROJECT
     # manually remove finalizer content. (be cautious, make sure you know what you are doing)
-    generate_pv_yaml | kubectl delete -f - && echo "unregistered $USER-pv"
+    generate_pv_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PV_NAME"
+    ;;
+  disk-cleanup)
+    if kubectl get jobset "$JOBSET_NAME" &>/dev/null; then
+      echo "Error: JobSet '$JOBSET_NAME' is still running. Please run 'server-stop' first."
+      continue
+    fi
+    echo -n "This will delete all disk resources ($WORKSPACE_DISK_PVC_NAME, $WORKSPACE_DISK_PV_NAME, and the GCE disk $WORKSPACE_DISK_NAME). Are you sure? (y/n) "
+    read -r REPLY
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Aborted."
+      continue
+    fi
+
+    generate_pvc_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PVC_NAME" # -f - --timeout=30s
+    generate_pv_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PV_NAME" # -f - --timeout=30s
+
+    gcloud compute disks delete "$WORKSPACE_DISK_NAME" --zone="$WORKSPACE_DISK_ZONE" --project="$PROJECT" --quiet && echo "deleted gcloud disk $DISK_NAME"
+
+    # if kubectl get pvc "$WORKSPACE_DISK_PVC_NAME" &>/dev/null; then
+    #   echo "Forcefully removing finalizers from PVC $WORKSPACE_DISK_PVC_NAME..."
+    #   kubectl patch pvc "$WORKSPACE_DISK_PVC_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge
+    # fi
+
+    # if kubectl get pv "$WORKSPACE_DISK_PV_NAME" &>/dev/null; then
+    #   echo "Forcefully removing finalizers from PV $WORKSPACE_DISK_PV_NAME..."
+    #   kubectl patch pv "$WORKSPACE_DISK_PV_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge
+    # fi
     ;;
   proxy-list)
     kubectl get pods | egrep "^isc-(proxy-$USER|${JOBSET_NAME})"
