@@ -10,8 +10,6 @@ export JOBSET_TPU_TOPO="2x2x1"
 
 export JOBSET_NAME="${USER}-ws"
 
-export GCS_BUCKET="gs://$USER-$REGION"
-
 ## container images
 
 export IMAGE_PATHWAYS_SERVER="us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_server:latest"
