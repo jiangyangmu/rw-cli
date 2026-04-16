@@ -149,7 +149,7 @@ spec:
         template:
           metadata:
             annotations:
-              cloud.google.com/gke-tpu-topology: ${TOPOLOGY}
+              cloud.google.com/gke-tpu-topology: 4x4x4
               kueue.k8s.io/podset-required-topology: cloud.google.com/gce-topology-block
               cloud.google.com/skip-tpu-webhook-check: "true"
               kueue.x-k8s.io/safe-to-forcefully-delete: "true"
