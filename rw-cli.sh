@@ -77,8 +77,6 @@ export WORKSPACE_CONTAINER="${WORKSPACE_CONTAINER:-}"
 export WORKSPACE_JOBSET_TMPL="${WORKSPACE_JOBSET_TMPL:-}"
 
 # disk settings
-# TODO: create your own disk (must be in the same zone as jobset, otherwise, the jobset fails due to disk mount failure)
-# $ gcloud compute disks create $USER-workspace-disk --size=512GB --zone=us-central1-ai1a --project=cloud-tpu-multipod-dev
 export WORKSPACE_DISK_SIZE="${WORKSPACE_DISK_SIZE:-}"
 export WORKSPACE_DISK_CSI_HANDLE="${WORKSPACE_DISK_CSI_HANDLE:-}"
 export WORKSPACE_DISK_PV_NAME="${WORKSPACE_DISK_PV_NAME-}"
@@ -143,23 +141,6 @@ if ! [ -f "$KUBECONFIG" ]; then
 fi
 kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" 2>/dev/null || { echo "kubectl use-context failed"; exit 1; }
 
-# detect run mode
-if [ -z "$1" ]; then
-  INTERACTIVE=true
-  echo "cluster: ${CLUSTER}"
-  echo "jobset: ${JOBSET_NAME}"
-  echo "tpu:    ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
-  echo "tmpl:   ${WORKSPACE_JOBSET_TMPL}"
-  echo "local:  ${WORKSPACE_LOCAL_ROOT}"
-  echo "remote: ${WORKSPACE_REMOTE_ROOT}"
-  echo
-else
-  INTERACTIVE=false
-  ACTIONS=("$@")
-fi
-
-set +e
-
 generate_jobset_yaml() {
   # TMPL_FILE="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.yaml"
   # TMPL_FLAGS=""
@@ -194,6 +175,31 @@ generate_pvc_yaml() {
     --user_pvc_size="${WORKSPACE_DISK_SIZE}" \
     --user_pv_name="${WORKSPACE_DISK_PV_NAME}"
 }
+
+# auto register disk
+if ! kubectl get pv | grep -q "$WORKSPACE_DISK_PV_NAME"; then
+  generate_pv_yaml | kubectl apply -f - || { echo "failed to register $WORKSPACE_DISK_PV_NAME"; exit 1; }
+fi
+if ! kubectl get pvc | grep -q "$WORKSPACE_DISK_PVC_NAME"; then
+  generate_pvc_yaml | kubectl apply -f - || { echo "failed to register $WORKSPACE_DISK_PVC_NAME"; exit 1; }
+fi
+
+# detect run mode
+if [ -z "$1" ]; then
+  INTERACTIVE=true
+  echo "cluster: ${CLUSTER}"
+  echo "jobset: ${JOBSET_NAME}"
+  echo "tpu:    ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
+  echo "tmpl:   ${WORKSPACE_JOBSET_TMPL}"
+  echo "local:  ${WORKSPACE_LOCAL_ROOT}"
+  echo "remote: ${WORKSPACE_REMOTE_ROOT}"
+  echo
+else
+  INTERACTIVE=false
+  ACTIONS=("$@")
+fi
+
+set +e
 
 while true; do
   trap 'echo' INT
