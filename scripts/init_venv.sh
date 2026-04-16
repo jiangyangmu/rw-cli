@@ -118,7 +118,7 @@ if [[ -d "pathways-utils" ]]; then
 
   # install deps for pathways-utils
   pip install -r requirements.txt
-  pip install jax==0.9.2
+  pip install jax==0.9.1
   # install deps for pathways-utils run_connect_example.py
   pip install portpicker
   # install pathways-utils

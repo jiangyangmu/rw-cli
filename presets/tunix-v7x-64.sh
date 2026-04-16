@@ -3,10 +3,10 @@
 export PROJECT="tpu-prod-env-automated"
 export REGION="us-central1"
 export ZONE="us-central1-c"
-export CLUSTER="tunix-v7x-128"
+export CLUSTER="tunix-v7x-64"
 
 export JOBSET_TPU_TYPE="tpu7x"
-export JOBSET_TPU_TOPO="4x4x4"
+export JOBSET_TPU_TOPO="2x4x4"
 
 export JOBSET_NAME="${USER}-ws"
 

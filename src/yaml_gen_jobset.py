@@ -43,6 +43,8 @@ def main(argv):
         REPLICAS=FLAGS.tpu_slices,
         COMPLETIONS=num_chips // 4,
         PARALLELISM=num_chips // 4,
+        PODSET_SLICE_TOPOLOGY=topology if num_chips <= 64 else "4x4x4",
+        PODSET_SLICE_SIZE=num_chips // 4 if num_chips <= 64 else 16,
         USER_CONTAINER=FLAGS.user_container,
         USER_CONTAINER_IMAGE=FLAGS.user_container_image,
         USER_PVC_NAME=FLAGS.user_pvc_name,

@@ -261,12 +261,11 @@ while true; do
     ;;
   server-start)
     generate_jobset_yaml | kubectl apply -f - && echo "applied $JOBSET_NAME"
-    sleep 1
 
-    WORKLOAD=$(kubectl get workloads | grep "$JOBSET_NAME" | awk '{print $1}')
-    if [ -z "$WORKLOAD" ]; then
-      continue
-    fi
+    until WORKLOAD=$(kubectl get workloads | grep "$JOBSET_NAME" | awk '{print $1}') && [ -n "$WORKLOAD" ]; do
+      echo -n "."; sleep 1
+    done
+    echo
 
     if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
       error_regex="FailedCreateSlice|couldn't assign flavors|LocalQueue lq doesn't exist"
