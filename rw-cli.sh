@@ -16,6 +16,7 @@
 #   [Lifecycle]
 #     server-start    - Generate JobSet YAML, apply it, and start the server
 #     server-stop     - Delete the JobSet and wait for termination
+#     server-resume   - Resume a suspended server
 #     server-wait     - Wait for pods to be in running state
 #     server-yaml     - Generate and save JobSet YAML to a file
 #     server-config   - Get current JobSet configuration in YAML format
@@ -205,6 +206,7 @@ if [ -z "$1" ]; then
   echo "jobset: ${JOBSET_NAME}"
   echo "tpu:    ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
   echo "tmpl:   ${WORKSPACE_JOBSET_TMPL}"
+  echo "disk:   ${WORKSPACE_DISK_CSI_HANDLE}"
   echo "local:  ${WORKSPACE_LOCAL_ROOT}"
   echo "remote: ${WORKSPACE_REMOTE_ROOT}"
   echo
@@ -266,18 +268,41 @@ while true; do
       continue
     fi
 
-    ok_regex="Admitted by"
-    error_regex="FailedCreateSlice|EvictedDueToAdmissionCheck|couldn't assign flavors|LocalQueue lq doesn't exist"
-    until kubectl describe workload "$WORKLOAD" | egrep -q "$ok_regex|$error_regex"; do
-      echo -n "."; sleep 1
-    done
-    if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
-      kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
-    fi
-    kubectl describe workload "$WORKLOAD" | egrep "$ok_regex"
+    if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
+      error_regex="FailedCreateSlice|couldn't assign flavors|LocalQueue lq doesn't exist"
 
-    # kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
-    # kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
+      until kubectl describe workload "$WORKLOAD" | egrep -q "SlicesCreated|$error_regex"; do
+        echo -n "."; sleep 1
+      done
+      if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
+        kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+      fi
+
+      kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
+      kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
+
+      until kubectl describe workload "$WORKLOAD" | egrep -q "Admitted by|$error_regex"; do
+        echo -n "."; sleep 1
+      done
+      if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
+        kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+      fi
+      echo "Admitted"
+    else
+      error_regex="FailedCreateSlice|EvictedDueToAdmissionCheck|couldn't assign flavors|LocalQueue lq doesn't exist"
+
+      until kubectl describe workload "$WORKLOAD" | egrep -q "Admitted by|$error_regex"; do
+        echo -n "."; sleep 1
+      done
+      if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
+        kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+      fi
+      echo "Admitted"
+    fi
+    ;;
+  server-resume)
+    kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
+    kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
     ;;
   server-stop)
     generate_jobset_yaml | kubectl delete -f - && echo "deleted $JOBSET_NAME" || continue
