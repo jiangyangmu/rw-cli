@@ -6,7 +6,7 @@ export ZONE="us-central1-c"
 export CLUSTER="tunix-v7x-128"
 
 export JOBSET_TPU_TYPE="tpu7x"
-export JOBSET_TPU_TOPO="2x2x1"
+export JOBSET_TPU_TOPO="${JOBSET_TPU_TOPO:-2x2x1}"
 
 export JOBSET_NAME="${USER}-ws"
 
@@ -47,7 +47,7 @@ export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
 
 # sync settings
 export WORKSPACE_REMOTE_ROOT="/mnt/disks/github" # mirrored remote codebase (disk mount path)
-export WORKSPACE_LOCAL_ROOT="/mnt/disks/github" # set your local codebase
+export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # TODO: set your local codebase
 export WORKSPACE_SYNC_EXCLUDE="lost\+found,__pycache__,.cache,.venv,.git,.jax_cache,.pytest_cache,.bin,.home,.old,.data,.models"
 
 # kubectl
