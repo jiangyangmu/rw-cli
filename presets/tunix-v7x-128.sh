@@ -30,7 +30,7 @@ export WORKSPACE_DISK_SIZE="512Gi"
 export WORKSPACE_DISK_ZONE=$ZONE
 
 if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT 2>&1 1>/dev/null; then
-  echo "$WORKSPACE_DISK_NAME found."
+  :
 else
   echo -n "Disk $WORKSPACE_DISK_NAME not found. Create it? (y/n) "
   read -r REPLY

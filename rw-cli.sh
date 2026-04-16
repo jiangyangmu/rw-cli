@@ -139,7 +139,7 @@ if ! [ -f "$KUBECONFIG" ]; then
     kubectl config set-context --current --namespace=default && \
     kubectl get namespaces
 fi
-kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" 2>/dev/null || { echo "kubectl use-context failed"; exit 1; }
+kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" >/dev/null || { echo "kubectl use-context failed"; exit 1; }
 
 generate_jobset_yaml() {
   # TMPL_FILE="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.yaml"
