@@ -9,14 +9,25 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string("jobset_name", None, "Name of the jobset")
 flags.DEFINE_string("tpu_type", None, "TPU type and topology (e.g., tpu7x:4x4x8)", required=True)
 flags.DEFINE_integer("tpu_slices", 1, "Number of TPU slices")
+
 flags.DEFINE_string("server_image", "us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:latest", "Pathways server image")
 flags.DEFINE_string("proxy_image", "us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:latest", "Pathways proxy server image")
+flags.DEFINE_string("user_container_image", None, "Image of the user container")
+
 flags.DEFINE_string("gcs_scratch_location", "gs://cloud-pathways-staging/tmp", "GCS scratch location")
 
 flags.DEFINE_string("user_container", None, "Name of the user container")
-flags.DEFINE_string("user_container_image", None, "Image of the user container")
 flags.DEFINE_string("user_pvc_name", None, "Name of the persistent volume claim to mount")
 flags.DEFINE_string("user_disk_mount_path", None, "Path to mount the user disk")
+
+# cluster specific flags
+flags.DEFINE_enum(
+    "bodaborg_super_alpha_cluster_priority_class",
+    "scale-test",
+    ["gsc", "dev", "scale-test", "ml-perf"],
+    "Priority class for bodaborg-super-alpha-cluster",
+)
+
 
 def main(argv):
   assert len(argv) == 2
@@ -49,6 +60,7 @@ def main(argv):
         USER_CONTAINER_IMAGE=FLAGS.user_container_image,
         USER_PVC_NAME=FLAGS.user_pvc_name,
         USER_DISK_MOUNT_PATH=FLAGS.user_disk_mount_path,
+        PRIORITY_CLASS=FLAGS.bodaborg_super_alpha_cluster_priority_class,
     )
     print(content)
 

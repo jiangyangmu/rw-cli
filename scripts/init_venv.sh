@@ -114,6 +114,13 @@ if [[ -d "pathways-utils" ]]; then
   # make it support tpu7x
   sed -i 's/6e))/6e)|tpu7x)/' pathwaysutils/experimental/shared_pathways_service/validators.py
 
+  # patch: pathwaysutils/experimental/shared_pathways_service/yamls/pw-proxy.yaml
+  # don't terminate pathways-worker when proxy-server is down
+  if ! grep -q "temporary_flags_for_debugging" pathwaysutils/experimental/shared_pathways_service/yamls/pw-proxy.yaml; then
+    sed -i '/--virtual_slices=${EXPECTED_INSTANCES}/a \        - --temporary_flags_for_debugging=temporary_flag_for_debugging_test_only_hold_death_ref=false' \
+      pathwaysutils/experimental/shared_pathways_service/yamls/pw-proxy.yaml
+  fi
+
   set -e
 
   # install deps for pathways-utils
@@ -147,6 +154,15 @@ echo "Install debugging tools..."
 echo "================================================"
 
 pip install debugpy
+pip install viztracer
+
+echo "================================================"
+echo "Download models..."
+echo "================================================"
+
+hf auth login --token=$(cat .hfkey) &&
+hf download Qwen/Qwen3-0.6B --local-dir=/mnt/disks/github/.models/Qwen/Qwen3-0.6B && \
+hf download meta-llama/Llama-3.2-1B-Instruct --local-dir=/mnt/disks/github/.models/meta-llama/Llama-3.2-1B-Instruct
 
 echo "================================================"
 echo "Install CRD:"

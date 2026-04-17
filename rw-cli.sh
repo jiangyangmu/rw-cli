@@ -76,6 +76,7 @@ export JOBSET_TPU_TYPE="${JOBSET_TPU_TYPE:-}"
 export JOBSET_TPU_TOPO="${JOBSET_TPU_TOPO:-}"
 
 export JOBSET_NAME="${JOBSET_NAME:-}"
+export JOBSET_NAMESPACE="${JOBSET_NAMESPACE:-}"
 
 ## container images
 
@@ -121,7 +122,7 @@ if [[ ! "$WORKSPACE_DISK_CSI_HANDLE" == *"$PROJECT"* ]]; then
 fi
 REQUIRED_VARS=(
   PROJECT REGION ZONE CLUSTER
-  JOBSET_TPU_TYPE JOBSET_TPU_TOPO JOBSET_NAME
+  JOBSET_TPU_TYPE JOBSET_TPU_TOPO JOBSET_NAME JOBSET_NAMESPACE
   IMAGE_PATHWAYS_SERVER IMAGE_PATHWAYS_PROXY_SERVER IMAGE_WORKSPACE
   WORKSPACE_CONTAINER WORKSPACE_JOBSET_TMPL
   WORKSPACE_DISK_NAME WORKSPACE_DISK_SIZE WORKSPACE_DISK_ZONE
@@ -148,13 +149,14 @@ cd $SCRIPT_ROOT
 source "src/utils.sh"
 
 # enter kube context
-export KUBECONFIG="$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER"
+export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER}"
 if ! [ -f "$KUBECONFIG" ]; then
     gcloud container clusters get-credentials $CLUSTER --region=$REGION --project=$PROJECT --dns-endpoint && \
-    kubectl config set-context --current --namespace=default && \
+    kubectl config set-context --current --namespace=$JOBSET_NAMESPACE && \
     kubectl get namespaces
 fi
 kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" >/dev/null || { echo "kubectl use-context failed"; exit 1; }
+kubectl config set-context --current --namespace=$JOBSET_NAMESPACE || { echo "kubectl set-context failed"; exit 1; }
 
 generate_jobset_yaml() {
   # TMPL_FILE="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.yaml"
@@ -166,6 +168,15 @@ generate_jobset_yaml() {
   TMPL_FLAGS+=" --user_container_image=${IMAGE_WORKSPACE}"
   TMPL_FLAGS+=" --user_pvc_name=${WORKSPACE_DISK_PVC_NAME}"
   TMPL_FLAGS+=" --user_disk_mount_path=${WORKSPACE_REMOTE_ROOT}"
+
+  if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
+    if [[ "$JOBSET_NAMESPACE" =~ ^poc-(.+)$ ]]; then
+      TMPL_FLAGS+=" --bodaborg_super_alpha_cluster_priority_class=${BASH_REMATCH[1]}"
+    else
+      echo "Error: JOBSET_NAMESPACE '$JOBSET_NAMESPACE' must match 'poc-<priority_class>' for cluster '$CLUSTER'." >&2
+      return
+    fi
+  fi
 
   python3 src/yaml_gen_jobset.py "$TMPL_FILE" \
     --jobset_name="$JOBSET_NAME" \
@@ -196,19 +207,24 @@ if ! kubectl get pv | grep -q "$WORKSPACE_DISK_PV_NAME"; then
   generate_pv_yaml | kubectl apply -f - || { echo "failed to register $WORKSPACE_DISK_PV_NAME"; exit 1; }
 fi
 if ! kubectl get pvc | grep -q "$WORKSPACE_DISK_PVC_NAME"; then
+  for namespace in $(kubectl get pvc | grep "$WORKSPACE_DISK_PVC_NAME" | awk '{print $1}'); do
+    echo "deleting existing pvc '$WORKSPACE_DISK_PVC_NAME' in namespace '$namespace'"
+    kubectl delete pvc "$WORKSPACE_DISK_PVC_NAME" -n "$namespace"
+  done
   generate_pvc_yaml | kubectl apply -f - || { echo "failed to register $WORKSPACE_DISK_PVC_NAME"; exit 1; }
 fi
 
 # detect run mode
 if [ -z "$1" ]; then
   INTERACTIVE=true
-  echo "cluster: ${CLUSTER}"
-  echo "jobset: ${JOBSET_NAME}"
-  echo "tpu:    ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
-  echo "tmpl:   ${WORKSPACE_JOBSET_TMPL}"
-  echo "disk:   ${WORKSPACE_DISK_CSI_HANDLE}"
-  echo "local:  ${WORKSPACE_LOCAL_ROOT}"
-  echo "remote: ${WORKSPACE_REMOTE_ROOT}"
+  echo "cluster:   ${CLUSTER}"
+  echo "namespace: ${JOBSET_NAMESPACE}"
+  echo "jobset:    ${JOBSET_NAME}"
+  echo "tpu:       ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
+  echo "tmpl:      ${WORKSPACE_JOBSET_TMPL}"
+  echo "disk:      ${WORKSPACE_DISK_CSI_HANDLE}"
+  echo "local:     ${WORKSPACE_LOCAL_ROOT}"
+  echo "remote:    ${WORKSPACE_REMOTE_ROOT}"
   echo
 else
   INTERACTIVE=false
@@ -228,16 +244,24 @@ while true; do
 
   case $action in
   list-jobs)
-    kubectl get jobs --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME"
+    kubectl get jobs -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME"
     ;;
   list-jobs-all)
     kubectl get jobs -o wide
     ;;
   list-pods)
-    kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME"
+    kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME"
     ;;
   list-queues)
     kubectl get queues
+    ;;
+  list-queues-all)
+    for q in $(kubectl get clusterqueues | grep -v NAME | awk '{print $1}'); do
+      echo
+      echo "======== $q ========"
+      echo
+      kubectl get clusterqueue $q -o yaml | egrep 'cpu|tpu'
+    done
     ;;
   list-nodes)
     kubectl get nodes -l cloud.google.com/gke-tpu-partition-$JOBSET_TPU_TOPO-id
@@ -268,7 +292,7 @@ while true; do
     echo
 
     if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
-      error_regex="FailedCreateSlice|couldn't assign flavors|LocalQueue lq doesn't exist"
+      error_regex="FailedCreateSlice|couldn't assign flavors|doesn't exist"
 
       until kubectl describe workload "$WORKLOAD" | egrep -q "SlicesCreated|$error_regex"; do
         echo -n "."; sleep 1
@@ -288,7 +312,7 @@ while true; do
       fi
       echo "Admitted"
     else
-      error_regex="FailedCreateSlice|EvictedDueToAdmissionCheck|couldn't assign flavors|LocalQueue lq doesn't exist"
+      error_regex="FailedCreateSlice|EvictedDueToAdmissionCheck|couldn't assign flavors|doesn't exist"
 
       until kubectl describe workload "$WORKLOAD" | egrep -q "Admitted by|$error_regex"; do
         echo -n "."; sleep 1
@@ -307,7 +331,7 @@ while true; do
     generate_jobset_yaml | kubectl delete -f - && echo "deleted $JOBSET_NAME" || continue
 
     while true; do
-      kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" 2>&1 | grep -q "No resources found" && break
+      kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" 2>&1 | grep -q "No resources found" && break
       echo -n "."
       sleep 1
     done
@@ -318,10 +342,11 @@ while true; do
     ;;
   head-restart)
     kubectl exec -it "$HEAD_POD" -c pathways-rm -- /bin/sh -c "kill 1"
+    kubectl exec -it "$HEAD_POD" -c pathways-proxy -- /bin/sh -c "kill 1"
     ;;
   worker-restart)
     # one worker down will trigger all workers to restart
-    WORKER_POD=$(kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
+    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
     kubectl exec -it "$WORKER_POD" -c pathways-worker -- /bin/sh -c "kill 1"
     ;;
   ssh-init)
@@ -356,6 +381,11 @@ while true; do
     echo "ssh to $HEAD_POD"
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "$USER"
     ;;
+  ssh-worker)
+    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
+    echo "ssh to $WORKER_POD"
+    kubectl exec -it "$WORKER_POD" -- /bin/sh
+    ;;
   bootstrap)
     ACTIONS=("server-start" "disk-init" "ssh-init" "${ACTIONS[@]}")
     ;;
@@ -383,7 +413,7 @@ while true; do
       devspace sync \
         --path="${WORKSPACE_LOCAL_ROOT}:${WORKSPACE_REMOTE_ROOT}" \
         --exclude="${WORKSPACE_SYNC_EXCLUDE}" \
-        --namespace=default \
+        --namespace="${JOBSET_NAMESPACE}" \
         --label-selector=batch.kubernetes.io/job-name=${JOBSET_NAME}-pathways-head-0 \
         --container="$WORKSPACE_CONTAINER" \
         --upload-only \
@@ -404,18 +434,27 @@ while true; do
       devspace sync \
         --path="${WORKSPACE_LOCAL_ROOT}:${WORKSPACE_REMOTE_ROOT}" \
         --exclude="${WORKSPACE_SYNC_EXCLUDE}" \
-        --namespace=default \
+        --namespace="${JOBSET_NAMESPACE}" \
         --label-selector=batch.kubernetes.io/job-name=${JOBSET_NAME}-pathways-head-0 \
-        --container="$WORKSPACE_CONTAINER" \
-        --upload-only
+        --container="$WORKSPACE_CONTAINER"
     fi
     ;;
   log-head)
     kubectl logs -l jobset.sigs.k8s.io/jobset-name=$JOBSET_NAME,jobset.sigs.k8s.io/replicatedjob-name=pathways-head -c pathways-rm --tail=20
     ;;
   log-worker)
-    WORKER_POD=$(kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
-    kubectl logs $WORKER_POD
+    # WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
+    # kubectl logs $WORKER_POD
+    echo -n "https://pantheon.corp.google.com/logs/query;query="
+    echo -n "resource.type%3D%22k8s_container"
+    echo -n "%22%0Aresource.labels.project_id%3D%22$PROJECT"
+    echo -n "%22%0Aresource.labels.location%3D%22$REGION"
+    echo -n "%22%0Aresource.labels.cluster_name%3D%22$CLUSTER"
+    echo -n "%22%0Aresource.labels.namespace_name%3D%22$JOBSET_NAMESPACE"
+    echo -n "%22%0Alabels.k8s-pod%2Fjobset_sigs_k8s_io%2Fjobset-name%3D%22$JOBSET_NAME"
+    echo -n "%22%0Aresource.labels.container_name%3D%22pathways-worker"
+    echo -n "%22;duration=PT6H"
+    echo "?project=$PROJECT"
     ;;
   desc-pods)
     kubectl describe pods -l jobset.sigs.k8s.io/jobset-name=$JOBSET_NAME
@@ -425,7 +464,7 @@ while true; do
     kubectl describe pods $HEAD_POD
     ;;
   desc-worker)
-    WORKER_POD=$(kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
+    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
     kubectl describe pods $WORKER_POD
     ;;
   desc-node)
@@ -500,6 +539,20 @@ while true; do
       echo "port-forward started on port ${FORWARD_PORT}"
     fi
     ;;
+  port-forward-auto)
+    FORWARD_PORT="${FORWARD_PORT:-29000}"
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+    echo "Starting auto port-forward for $HEAD_POD on port $FORWARD_PORT..."
+    while true; do
+      if ! ps aux | grep "kubectl port-forward" | grep "$FORWARD_PORT:$FORWARD_PORT" | grep -v grep > /dev/null; then
+        echo "$(date): Starting port-forward..."
+        kubectl port-forward "$HEAD_POD" "$FORWARD_PORT:$FORWARD_PORT" >/dev/null 2>&1 &
+      fi
+      sleep 5
+      # Check if the pod still exists; if not, exit the loop
+      kubectl get pod "$HEAD_POD" >/dev/null 2>&1 || { echo "Pod $HEAD_POD no longer exists. Stopping auto-forward."; break; }
+    done
+    ;;
   port-forward-kill)
     if ps aux | grep "kubectl port-forward" | grep -q -v grep; then
       pkill -f "kubectl port-forward"
@@ -507,10 +560,10 @@ while true; do
     fi
     ;;
   dash)
-    echo "https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/default/$JOBSET_NAME/overview?project=$PROJECT"
+    echo "https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$JOBSET_NAME/overview?project=$PROJECT"
     ;;
   dash-all)
-    echo "jobs: https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/default/$JOBSET_NAME/overview?project=$PROJECT"
+    echo "jobs: https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$JOBSET_NAME/overview?project=$PROJECT"
     echo "disk: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
     ;;
   quit)

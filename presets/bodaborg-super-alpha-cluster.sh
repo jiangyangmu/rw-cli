@@ -6,9 +6,10 @@ export ZONE="us-central1-a"
 export CLUSTER="bodaborg-super-alpha-cluster"
 
 export JOBSET_TPU_TYPE="tpu7x"
-export JOBSET_TPU_TOPO="${JOBSET_TPU_TOPO:-4x4x4}"
+export JOBSET_TPU_TOPO="4x4x4"
 
 export JOBSET_NAME="${USER}-ws"
+export JOBSET_NAMESPACE="${JOBSET_NAMESPACE:-poc-ml-perf}"
 
 ## container images
 
@@ -48,7 +49,7 @@ export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
 # sync settings
 export WORKSPACE_REMOTE_ROOT="/mnt/disks/github" # mirrored remote codebase (disk mount path)
 export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # TODO: set your local codebase
-export WORKSPACE_SYNC_EXCLUDE="lost\+found,.cache,.venv,.git,.jax_cache,.pytest_cache,.bin,.home,.old,.data,.models"
+export WORKSPACE_SYNC_EXCLUDE="lost\+found,.cache,.venv,.git,.jax_cache,.pytest_cache,.bin,.old,.data,.models"
 
 # kubectl
 export KUBECONFIG="$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER"

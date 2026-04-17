@@ -1,11 +1,13 @@
 apiVersion: jobset.x-k8s.io/v1alpha2
 kind: JobSet
 metadata:
-  annotations:
-    jobset.sigs.k8s.io/hack: "true"
-  labels: {}
   name: ${JOBSET_NAME}
-  namespace: default
+  namespace: poc-${PRIORITY_CLASS} # ml-perf(inf), gsc(15m), dev(20m), scale-test(24h)
+  labels:
+    kueue.x-k8s.io/queue-name: lq # lq only has cpu or tpu, I need both
+    team: ${PRIORITY_CLASS}
+    value-class: development # development, benchmark, scale-test, regression
+    declared-duration-minutes: "1440" # ml-perf(inf), gsc(15m), dev(20m), scale-test(24h)
 spec:
   coordinator:
     replicatedJob: pathways-head
@@ -33,7 +35,7 @@ spec:
             labels: {}
           spec:
             nodeSelector:
-              cloud.google.com/gke-nodepool: cpu-np
+              cloud.google.com/gke-nodepool: deepswe-cpu-pool
             dnsPolicy: ClusterFirstWithHostNet
             hostNetwork: true
             restartPolicy: Never
@@ -80,7 +82,7 @@ spec:
               resources:
                 limits:
                   cpu: "24"
-                  memory: 100G
+                  memory: 32G
               volumeMounts:
               - mountPath: "${USER_DISK_MOUNT_PATH}"
                 name: user-disk
@@ -105,27 +107,28 @@ spec:
                   echo "XPK End: $$(date)"
                   echo "EXIT_CODE=$$EXIT_CODE"
                   exit $$EXIT_CODE
-            - name: pathways-proxy
-              image: ${PROXY_IMAGE}
-              imagePullPolicy: Always
-              resources:
-                limits:
-                  cpu: "16"
-                  memory: 100G
-              args:
-              - --server_port=29000
-              - --resource_manager_address=$$(PATHWAYS_HEAD):29001
-              - --gcs_scratch_location=${GCS_SCRATCH_LOCATION}
-              # - --virtual_slices=tpu7x:2x2x1
-              env:
-              - name: PATHWAYS_HEAD
-                valueFrom:
-                  fieldRef:
-                    fieldPath: metadata.labels['jobset.sigs.k8s.io/coordinator']
-              ports:
-              - containerPort: 29000
-                protocol: TCP
-              restartPolicy: Always
+            # - name: pathways-proxy
+            #   image: ${PROXY_IMAGE}
+            #   imagePullPolicy: Always
+            #   resources:
+            #     limits:
+            #       cpu: "16"
+            #       memory: 100G
+            #   args:
+            #   - --server_port=29000
+            #   - --resource_manager_address=$$(PATHWAYS_HEAD):29001
+            #   - --gcs_scratch_location=${GCS_SCRATCH_LOCATION}
+            #   # - --virtual_slices=tpu7x:2x2x1
+            #   - --temporary_flags_for_debugging=temporary_flag_for_debugging_test_only_hold_death_ref=false
+            #   env:
+            #   - name: PATHWAYS_HEAD
+            #     valueFrom:
+            #       fieldRef:
+            #         fieldPath: metadata.labels['jobset.sigs.k8s.io/coordinator']
+            #   ports:
+            #   - containerPort: 29000
+            #     protocol: TCP
+            #   restartPolicy: Always
             terminationGracePeriodSeconds: 10
             volumes:
             - name: shared-tmp
@@ -151,14 +154,14 @@ spec:
         template:
           metadata:
             annotations:
-              cloud.google.com/gke-tpu-slice-topology: ${TOPOLOGY}
-              kueue.k8s.io/podset-required-topology: cloud.google.com/gce-topology-block
-              kueue.x-k8s.io/podset-slice-required-topology: cloud.google.com/gke-tpu-partition-4x4x4-id
-              kueue.x-k8s.io/podset-slice-size: "16"
-              cloud.google.com/skip-tpu-webhook-check: "true"
-              kueue.x-k8s.io/safe-to-forcefully-delete: "true"
-            labels: {}
+              cloud.google.com/gke-tpu-slice-topology: ${PODSET_SLICE_TOPOLOGY}
+              kueue.x-k8s.io/podset-required-topology: cloud.google.com/gce-topology-block
+              kueue.x-k8s.io/podset-slice-required-topology: cloud.google.com/gke-tpu-partition-${PODSET_SLICE_TOPOLOGY}-id
+              kueue.x-k8s.io/podset-slice-size: "${PODSET_SLICE_SIZE}"
+              # cloud.google.com/skip-tpu-webhook-check: "true"
+              # kueue.x-k8s.io/safe-to-forcefully-delete: "true"
           spec:
+            priorityClassName: poc-${PRIORITY_CLASS}-priority
             affinity:
               nodeAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:
@@ -176,7 +179,8 @@ spec:
               effect: "NoSchedule"
             nodeSelector:
               cloud.google.com/gke-tpu-accelerator: ${TPU_TYPE}
-              cloud.google.com/reservation-name: ghostfish-l0727cey97uen
+              cloud.google.com/gke-tpu-topology: ${PODSET_SLICE_TOPOLOGY}
+              # cloud.google.com/reservation-name: ghostfish-l0727cey97uen
             hostNetwork: true
             dnsPolicy: ClusterFirstWithHostNet
             containers:

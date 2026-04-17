@@ -44,7 +44,7 @@ spec:
               restartPolicy: Always
               resources:
                 limits:
-                  cpu: "8"
+                  cpu: "24"
                   memory: 32G
               args:
               - --server_port=29001
@@ -105,27 +105,28 @@ spec:
                   echo "XPK End: $$(date)"
                   echo "EXIT_CODE=$$EXIT_CODE"
                   exit $$EXIT_CODE
-            - name: pathways-proxy
-              image: ${PROXY_IMAGE}
-              imagePullPolicy: Always
-              restartPolicy: Always
-              resources:
-                limits:
-                  cpu: "16"
-                  memory: 100G
-              args:
-              - --server_port=29000
-              - --resource_manager_address=$$(PATHWAYS_HEAD):29001
-              - --gcs_scratch_location=${GCS_SCRATCH_LOCATION}
-              # - --virtual_slices=tpu7x:2x2x1
-              env:
-              - name: PATHWAYS_HEAD
-                valueFrom:
-                  fieldRef:
-                    fieldPath: metadata.labels['jobset.sigs.k8s.io/coordinator']
-              ports:
-              - containerPort: 29000
-                protocol: TCP
+            # - name: pathways-proxy
+            #   image: ${PROXY_IMAGE}
+            #   imagePullPolicy: Always
+            #   restartPolicy: Always
+            #   resources:
+            #     limits:
+            #       cpu: "16"
+            #       memory: 100G
+            #   args:
+            #   - --server_port=29000
+            #   - --resource_manager_address=$$(PATHWAYS_HEAD):29001
+            #   - --gcs_scratch_location=${GCS_SCRATCH_LOCATION}
+            #   # - --virtual_slices=tpu7x:2x2x1
+            #   - --temporary_flags_for_debugging=temporary_flag_for_debugging_test_only_hold_death_ref=false
+            #   env:
+            #   - name: PATHWAYS_HEAD
+            #     valueFrom:
+            #       fieldRef:
+            #         fieldPath: metadata.labels['jobset.sigs.k8s.io/coordinator']
+            #   ports:
+            #   - containerPort: 29000
+            #     protocol: TCP
             terminationGracePeriodSeconds: 10
             volumes:
             - name: shared-tmp
