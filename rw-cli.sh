@@ -23,9 +23,10 @@
 #
 #   [Development]
 #     ssh             - SSH to the head node as the current user
+#     ssh-run         - Run a command on the head node as the current user
 #     ssh-root        - SSH to the head node as root
 #     sync            - Start continuous sync from local to remote workspace
-#     port-forward    - Start port forwarding to the head node (default port: 29000)
+#     port-forward    - Start port forwarding to the head node (default port: 8888)
 #     port-forward-kill - Stop port forwarding
 #
 #   [Inspection]
@@ -61,9 +62,8 @@
 #
 set -e
 
-source "/mnt/disks/github/.venv/3.12/k8s/bin/activate"
-
-# ============= Your TODOs begin =============
+# ============= Environment Variables begin =============
+# don't change these, set via presets/<cluster>.sh
 
 ## jobset
 
@@ -99,11 +99,13 @@ export WORKSPACE_DISK_PV_NAME="${WORKSPACE_DISK_PV_NAME-}"
 export WORKSPACE_DISK_PVC_NAME="${WORKSPACE_DISK_PVC_NAME-}"
 
 # sync settings
+export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # your local codebase
+export WORKSPACE_LOCAL_VENV="${WORKSPACE_LOCAL_VENV:-}"
 export WORKSPACE_REMOTE_ROOT="${WORKSPACE_REMOTE_ROOT:-}" # mirrored remote codebase (disk mount path)
-export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # TODO: set your local codebase
-export WORKSPACE_SYNC_EXCLUDE="${WORKSPACE_SYNC_EXCLUDE:-lost\+found,__pycache__,.cache,.venv,.git,.jax_cache,.pytest_cache,.bin,.home}"
+export WORKSPACE_REMOTE_VENV="${WORKSPACE_REMOTE_VENV:-}"
+export WORKSPACE_SYNC_EXCLUDE="${WORKSPACE_SYNC_EXCLUDE:-}"
 
-# ============= Your TODOs end =============
+# ============= Environment Variables end =============
 
 # sanity check of environment variables
 if [ -z "$JOBSET_NAME" ]; then
@@ -135,6 +137,16 @@ for var in "${REQUIRED_VARS[@]}"; do
     exit 1
   fi
 done
+
+# add global ignores
+GLOBAL_SYNC_EXCLUDE="lost\+found,"
+GLOBAL_SYNC_EXCLUDE+=".local,.bin,*.swp,*.lock,"
+GLOBAL_SYNC_EXCLUDE+=".cache,.jax_cache,.pytest_cache,__pycache__,"
+GLOBAL_SYNC_EXCLUDE+=".venv,.vscode,.git,"
+export WORKSPACE_SYNC_EXCLUDE="$WORKSPACE_SYNC_EXCLUDE,$GLOBAL_SYNC_EXCLUDE"
+
+# enter venv
+source "$WORKSPACE_LOCAL_VENV/bin/activate"
 
 # gcloud auth check
 if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
@@ -203,11 +215,11 @@ generate_pvc_yaml() {
 }
 
 # auto register disk
-if ! kubectl get pv | grep -q "$WORKSPACE_DISK_PV_NAME"; then
+if ! kubectl get pv 2>/dev/null | grep -q "$WORKSPACE_DISK_PV_NAME"; then
   generate_pv_yaml | kubectl apply -f - || { echo "failed to register $WORKSPACE_DISK_PV_NAME"; exit 1; }
 fi
-if ! kubectl get pvc | grep -q "$WORKSPACE_DISK_PVC_NAME"; then
-  for namespace in $(kubectl get pvc | grep "$WORKSPACE_DISK_PVC_NAME" | awk '{print $1}'); do
+if ! kubectl get pvc 2>/dev/null | grep -q "$WORKSPACE_DISK_PVC_NAME"; then
+  for namespace in $(kubectl get pvc 2>/dev/null | grep "$WORKSPACE_DISK_PVC_NAME" | awk '{print $1}'); do
     echo "deleting existing pvc '$WORKSPACE_DISK_PVC_NAME' in namespace '$namespace'"
     kubectl delete pvc "$WORKSPACE_DISK_PVC_NAME" -n "$namespace"
   done
@@ -225,6 +237,7 @@ if [ -z "$1" ]; then
   echo "disk:      ${WORKSPACE_DISK_CSI_HANDLE}"
   echo "local:     ${WORKSPACE_LOCAL_ROOT}"
   echo "remote:    ${WORKSPACE_REMOTE_ROOT}"
+  echo "ignore:    ${WORKSPACE_SYNC_EXCLUDE}"
   echo
 else
   INTERACTIVE=false
@@ -236,7 +249,7 @@ set +e
 while true; do
   trap 'echo' INT
   if [ "$INTERACTIVE" = true ]; then
-    read -e -p "> " action
+    read -e -p "${CLUSTER}:${JOBSET_NAME} > " action
   else
     [ ${#ACTIONS[@]} -eq 0 ] && break
     action="${ACTIONS[0]}"; ACTIONS=("${ACTIONS[@]:1}")
@@ -369,7 +382,7 @@ while true; do
     echo "[$USER] init user home on $HEAD_POD"
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export DISK_MOUNT_PATH=${WORKSPACE_REMOTE_ROOT}; bash -s" < "${SCRIPT_ROOT}/scripts/init_home.sh" || continue
     echo "[$USER] init venv on $HEAD_POD"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; bash -s" < "${SCRIPT_ROOT}/scripts/init_venv.sh"
+    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; export VENV_PATH=${WORKSPACE_REMOTE_VENV}; bash -s" < "${SCRIPT_ROOT}/scripts/init_venv.sh"
     ;;
   ssh-root)
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
@@ -380,6 +393,17 @@ while true; do
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
     echo "ssh to $HEAD_POD"
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "$USER"
+    ;;
+  ssh-run)
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+    if [ ${#ACTIONS[@]} -gt 0 ]; then
+      run_cmd="${ACTIONS[*]}"
+      ACTIONS=()
+    else
+      read -e -p "Command to run: " run_cmd
+    fi
+    echo "running '$run_cmd' on $HEAD_POD"
+    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "$USER" -c "source ~/.zshrc 2>/dev/null; $run_cmd"
     ;;
   ssh-worker)
     WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
@@ -407,6 +431,7 @@ while true; do
     fi
     if ps aux | grep "devspace sync" | grep -q -v grep; then
       echo "devspace sync is already running"
+      exit 1
     else
       # for usage: https://www.devspace.sh/docs/cli/devspace_sync
       # for different sync strategy: https://www.devspace.sh/docs/configuration/dev/connections/file-sync
@@ -415,7 +440,7 @@ while true; do
         --exclude="${WORKSPACE_SYNC_EXCLUDE}" \
         --namespace="${JOBSET_NAMESPACE}" \
         --label-selector=batch.kubernetes.io/job-name=${JOBSET_NAME}-pathways-head-0 \
-        --container="$WORKSPACE_CONTAINER" \
+        --container="${WORKSPACE_CONTAINER}" \
         --upload-only \
         --no-watch
     fi
@@ -426,18 +451,18 @@ while true; do
       echo "Please set WORKSPACE_LOCAL_ROOT."
       exit 1
     fi
-    if ps aux | grep "devspace sync" | grep -q -v grep; then
-      echo "devspace sync is already running"
-    else
-      # for usage: https://www.devspace.sh/docs/cli/devspace_sync
-      # for different sync strategy: https://www.devspace.sh/docs/configuration/dev/connections/file-sync
-      devspace sync \
-        --path="${WORKSPACE_LOCAL_ROOT}:${WORKSPACE_REMOTE_ROOT}" \
-        --exclude="${WORKSPACE_SYNC_EXCLUDE}" \
-        --namespace="${JOBSET_NAMESPACE}" \
-        --label-selector=batch.kubernetes.io/job-name=${JOBSET_NAME}-pathways-head-0 \
-        --container="$WORKSPACE_CONTAINER"
-    fi
+    # if ps aux | grep "devspace sync" | grep -q -v grep; then
+    #   echo "devspace sync is already running"
+    #   continue
+    # fi
+    # for usage: https://www.devspace.sh/docs/cli/devspace_sync
+    # for different sync strategy: https://www.devspace.sh/docs/configuration/dev/connections/file-sync
+    devspace sync \
+      --path="${WORKSPACE_LOCAL_ROOT}:${WORKSPACE_REMOTE_ROOT}" \
+      --exclude="${WORKSPACE_SYNC_EXCLUDE}" \
+      --namespace="${JOBSET_NAMESPACE}" \
+      --label-selector=batch.kubernetes.io/job-name=${JOBSET_NAME}-pathways-head-0 \
+      --container="$WORKSPACE_CONTAINER"
     ;;
   log-head)
     kubectl logs -l jobset.sigs.k8s.io/jobset-name=$JOBSET_NAME,jobset.sigs.k8s.io/replicatedjob-name=pathways-head -c pathways-rm --tail=20
@@ -529,7 +554,7 @@ while true; do
     kubectl delete pods $(kubectl get pods | egrep "^isc-(proxy-$USER|${JOBSET_NAME})" | awk '{print $1}')
     ;;
   port-forward)
-    FORWARD_PORT="${FORWARD_PORT:-29000}"
+    FORWARD_PORT="${FORWARD_PORT:-8888}"
     if ps aux | egrep "kubectl port-forward.*$FORWARD_PORT:$FORWARD_PORT" | grep -q -v grep; then
       echo "port-forward on port ${FORWARD_PORT} is already running"
     else
@@ -540,7 +565,7 @@ while true; do
     fi
     ;;
   port-forward-auto)
-    FORWARD_PORT="${FORWARD_PORT:-29000}"
+    FORWARD_PORT="${FORWARD_PORT:-8888}"
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
     echo "Starting auto port-forward for $HEAD_POD on port $FORWARD_PORT..."
     while true; do

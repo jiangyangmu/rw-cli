@@ -41,6 +41,15 @@ def main(argv):
   if FLAGS.jobset_name is None:
     jobset_name = f"{os.environ.get('USER')}-{tpu_type}-{num_chips}"
 
+  if tpu_type == "tpu7x":
+    slice_topology = topology if num_chips <= 64 else "4x4x4"
+    slice_size = num_chips // 4 if num_chips <= 64 else 16
+  elif tpu_type == "tpuv5":
+    slice_topology = topology if num_chips <= 8 else "2x2x2"
+    slice_size = num_chips // 4 if num_chips <= 8 else 2
+  else:
+    raise ValueError(f"Unsupported TPU type {tpu_type}")
+
   with open(template_file, "r") as f:
     template = string.Template(f.read())
     content = template.substitute(
@@ -54,8 +63,8 @@ def main(argv):
         REPLICAS=FLAGS.tpu_slices,
         COMPLETIONS=num_chips // 4,
         PARALLELISM=num_chips // 4,
-        PODSET_SLICE_TOPOLOGY=topology if num_chips <= 64 else "4x4x4",
-        PODSET_SLICE_SIZE=num_chips // 4 if num_chips <= 64 else 16,
+        PODSET_SLICE_TOPOLOGY=slice_topology,
+        PODSET_SLICE_SIZE=slice_size,
         USER_CONTAINER=FLAGS.user_container,
         USER_CONTAINER_IMAGE=FLAGS.user_container_image,
         USER_PVC_NAME=FLAGS.user_pvc_name,

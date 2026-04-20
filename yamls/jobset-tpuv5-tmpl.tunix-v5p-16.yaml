@@ -26,11 +26,11 @@ spec:
         completions: 1
         parallelism: 1
         template:
-          metadata:
-            annotations:
-              alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
-              kueue.x-k8s.io/safe-to-forcefully-delete: "true"
-            labels: {}
+          # metadata:
+          #   annotations:
+          #     alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
+          #     kueue.x-k8s.io/safe-to-forcefully-delete: "true"
+          #   labels: {}
           spec:
             nodeSelector:
               cloud.google.com/gke-nodepool: cpu-np
@@ -117,7 +117,6 @@ spec:
               - --server_port=29000
               - --resource_manager_address=$$(PATHWAYS_HEAD):29001
               - --gcs_scratch_location=${GCS_SCRATCH_LOCATION}
-              # - --virtual_slices=tpu7x:2x2x1
               - --temporary_flags_for_debugging=temporary_flag_for_debugging_test_only_hold_death_ref=false
               env:
               - name: PATHWAYS_HEAD
@@ -150,7 +149,7 @@ spec:
         template:
           metadata:
             annotations:
-              cloud.google.com/gke-tpu-topology: 4x4x4
+              cloud.google.com/gke-tpu-topology: 2x2x2
               kueue.k8s.io/podset-required-topology: cloud.google.com/gce-topology-block
               cloud.google.com/skip-tpu-webhook-check: "true"
               kueue.x-k8s.io/safe-to-forcefully-delete: "true"
@@ -162,7 +161,7 @@ spec:
               value: "present"
               effect: "NoSchedule"
             nodeSelector:
-              cloud.google.com/gke-tpu-accelerator: ${TPU_TYPE}
+              cloud.google.com/gke-tpu-accelerator: tpu-v5p-slice
             hostNetwork: true
             dnsPolicy: ClusterFirstWithHostNet
             containers:

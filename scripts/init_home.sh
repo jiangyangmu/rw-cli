@@ -43,7 +43,17 @@ for item in .bashrc .bash_history .zshrc .zsh_history; do
         cp "$HOME/$item" "$DISK_MOUNT_PATH/.home/$item"
     fi
     # make item in $HOME a symlink, so changes are made to item on disk.
-    ln -f -s "$DISK_MOUNT_PATH/.home/$item" "$HOME/$item"
+    for i in {1..3}; do
+        ln -f -s "$DISK_MOUNT_PATH/.home/$item" "$HOME/$item"
+        if [ -L "$HOME/$item" ]; then
+            break
+        fi
+        echo "[${0##*/}] Warning: Failed to create symlink for $item (trial $i), retrying..."
+        sleep 1
+    done
+    if [ ! -L "$HOME/$item" ]; then
+        echo "[${0##*/}] Error: Failed to create symlink for $item, changes won't be saved"
+    fi
 done
 
 mkdir -p "$DISK_MOUNT_PATH/.bin"
@@ -95,5 +105,8 @@ for rc in .bashrc .zshrc; do
         echo "source $DISK_VENV_PATH/bin/activate" >> "$HOME/$rc"
         # goto mount disk when login
         echo "cd $DISK_MOUNT_PATH" >> "$HOME/$rc"
+    fi
+    if ! grep -q ".local/bin" "$HOME/$rc"; then
+        echo 'export PATH=$HOME/.local/bin:$PATH' >> "$HOME/$rc"
     fi
 done

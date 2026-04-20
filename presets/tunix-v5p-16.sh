@@ -1,14 +1,21 @@
+if [ -f "profiles/$USER.sh" ]; then
+  source "profiles/$USER.sh"
+else
+  echo "Profile $USER.sh not found in profiles/."
+  return 1
+fi
+
 ## jobset
 
-export PROJECT="tpu-prod-env-automated"
-export REGION="us-central1"
-export ZONE="us-central1-c"
-export CLUSTER="tunix-v7x-128"
+export PROJECT='cloud-tpu-multipod-dev'
+export REGION='europe-west4'
+export ZONE='europe-west4-b'
+export CLUSTER="tunix-v5p-16"
 
-export JOBSET_TPU_TYPE="tpu7x"
-export JOBSET_TPU_TOPO="4x4x4"
+export JOBSET_TPU_TYPE="tpuv5"
+export JOBSET_TPU_TOPO="2x2x2"
 
-export JOBSET_NAME="${USER}-ws"
+export JOBSET_NAME="${USER}-ds"
 export JOBSET_NAMESPACE="default"
 
 ## container images
@@ -47,9 +54,11 @@ export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/d
 export WORKSPACE_DISK_PV_NAME="${USER}-pv"
 export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
 
-# sync settings
-export WORKSPACE_REMOTE_ROOT="/mnt/disks/github" # mirrored remote codebase (disk mount path)
-export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # TODO: set your local codebase
+# sync settings (set by profiles/$UER.sh)
+export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # your local codebase
+export WORKSPACE_LOCAL_VENV="${WORKSPACE_LOCAL_VENV:-}"
+export WORKSPACE_REMOTE_ROOT="${WORKSPACE_REMOTE_ROOT:-}" # mirrored remote codebase (disk mount path)
+export WORKSPACE_REMOTE_VENV="${WORKSPACE_REMOTE_VENV:-}"
 export WORKSPACE_SYNC_EXCLUDE="${WORKSPACE_SYNC_EXCLUDE:-}"
 
 # kubectl
