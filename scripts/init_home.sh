@@ -27,6 +27,8 @@ command -v man >/dev/null 2>&1 || sudo apt install -y man
 command -v less >/dev/null 2>&1 || sudo apt install -y less
 command -v bc >/dev/null 2>&1 || sudo apt install -y bc
 command -v ag >/dev/null 2>&1 || sudo apt install -y silversearcher-ag
+command -v curl >/dev/null 2>&1 || sudo apt install -y curl
+command -v make >/dev/null 2>&1 || sudo apt install -y make
 command -v zsh >/dev/null 2>&1 || sudo apt install -y zsh
 
 # install on-my-zsh if it doesn't exist

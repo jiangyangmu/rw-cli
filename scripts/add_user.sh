@@ -20,8 +20,11 @@ if [ ! -d "/home/$NEW_USER" ]; then
 
   usermod -aG sudo "$NEW_USER"
   usermod -aG root "$NEW_USER"
+fi
+
+if ! command -v sudo &>/dev/null; then
   apt-get update
-  apt install sudo
+  apt install -y sudo
   # no password for sudo
   if [ ! -f "/etc/sudoers.d/$NEW_USER" ]; then
     echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" >> "/etc/sudoers.d/$NEW_USER"

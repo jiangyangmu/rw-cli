@@ -51,6 +51,8 @@
 #     worker-restart  - Restart one of the worker nodes
 #     proxy-list      - List proxy pods
 #     proxy-kill      - Delete proxy pods
+#     debug-ports     - List pods with hostPorts (defaults to 29000)
+#     debug-labels    - Compare JobSet nodeSelectors with node and flavor labels
 #
 #   [Cleanup]
 #     disk-cleanup    - Remove all disk resources. Make sure the server is down before run this
@@ -143,6 +145,7 @@ GLOBAL_SYNC_EXCLUDE="lost\+found,"
 GLOBAL_SYNC_EXCLUDE+=".local,.bin,*.swp,*.lock,"
 GLOBAL_SYNC_EXCLUDE+=".cache,.jax_cache,.pytest_cache,__pycache__,"
 GLOBAL_SYNC_EXCLUDE+=".venv,.vscode,.git,"
+GLOBAL_SYNC_EXCLUDE+="*.tar,"
 export WORKSPACE_SYNC_EXCLUDE="$WORKSPACE_SYNC_EXCLUDE,$GLOBAL_SYNC_EXCLUDE"
 
 # enter venv
@@ -181,14 +184,14 @@ generate_jobset_yaml() {
   TMPL_FLAGS+=" --user_pvc_name=${WORKSPACE_DISK_PVC_NAME}"
   TMPL_FLAGS+=" --user_disk_mount_path=${WORKSPACE_REMOTE_ROOT}"
 
-  if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
-    if [[ "$JOBSET_NAMESPACE" =~ ^poc-(.+)$ ]]; then
-      TMPL_FLAGS+=" --bodaborg_super_alpha_cluster_priority_class=${BASH_REMATCH[1]}"
-    else
-      echo "Error: JOBSET_NAMESPACE '$JOBSET_NAMESPACE' must match 'poc-<priority_class>' for cluster '$CLUSTER'." >&2
-      return
-    fi
-  fi
+  # if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
+  #   if [[ "$JOBSET_NAMESPACE" =~ ^poc-(.+)$ ]]; then
+  #     TMPL_FLAGS+=" --bodaborg_super_alpha_cluster_priority_class=${BASH_REMATCH[1]}"
+  #   else
+  #     echo "Error: JOBSET_NAMESPACE '$JOBSET_NAMESPACE' must match 'poc-<priority_class>' for cluster '$CLUSTER'." >&2
+  #     return
+  #   fi
+  # fi
 
   python3 src/yaml_gen_jobset.py "$TMPL_FILE" \
     --jobset_name="$JOBSET_NAME" \
@@ -277,7 +280,7 @@ while true; do
     done
     ;;
   list-nodes)
-    kubectl get nodes -l cloud.google.com/gke-tpu-partition-$JOBSET_TPU_TOPO-id
+    kubectl get nodes -l cloud.google.com/gke-tpu-partition-4x4x4-id
     ;;
   server-yaml)
     read -e -p "Output file [${JOBSET_NAME}.yaml]: " yaml_file
@@ -429,21 +432,20 @@ while true; do
       echo "Please set WORKSPACE_LOCAL_ROOT."
       exit 1
     fi
-    if ps aux | grep "devspace sync" | grep -q -v grep; then
-      echo "devspace sync is already running"
-      exit 1
-    else
-      # for usage: https://www.devspace.sh/docs/cli/devspace_sync
-      # for different sync strategy: https://www.devspace.sh/docs/configuration/dev/connections/file-sync
-      devspace sync \
-        --path="${WORKSPACE_LOCAL_ROOT}:${WORKSPACE_REMOTE_ROOT}" \
-        --exclude="${WORKSPACE_SYNC_EXCLUDE}" \
-        --namespace="${JOBSET_NAMESPACE}" \
-        --label-selector=batch.kubernetes.io/job-name=${JOBSET_NAME}-pathways-head-0 \
-        --container="${WORKSPACE_CONTAINER}" \
-        --upload-only \
-        --no-watch
-    fi
+    # if ps aux | grep "devspace sync" | grep -q -v grep; then
+    #   echo "devspace sync is already running"
+    #   exit 1
+    # fi
+    # for usage: https://www.devspace.sh/docs/cli/devspace_sync
+    # for different sync strategy: https://www.devspace.sh/docs/configuration/dev/connections/file-sync
+    devspace sync \
+      --path="${WORKSPACE_LOCAL_ROOT}:${WORKSPACE_REMOTE_ROOT}" \
+      --exclude="${WORKSPACE_SYNC_EXCLUDE}" \
+      --namespace="${JOBSET_NAMESPACE}" \
+      --label-selector=batch.kubernetes.io/job-name=${JOBSET_NAME}-pathways-head-0 \
+      --container="${WORKSPACE_CONTAINER}" \
+      --upload-only \
+      --no-watch
     ;;
   sync)
     if [[ -z "$WORKSPACE_LOCAL_ROOT" ]]; then
@@ -518,6 +520,7 @@ while true; do
     generate_pvc_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PVC_NAME"
     # if pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$USER-pv/details?project=$PROJECT
     # manually remove finalizer content. (be cautious, make sure you know what you are doing)
+    echo "If pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$USER-pv/details?project=$PROJECT"
     generate_pv_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PV_NAME"
     ;;
   disk-cleanup)
@@ -552,6 +555,38 @@ while true; do
     ;;
   proxy-kill)
     kubectl delete pods $(kubectl get pods | egrep "^isc-(proxy-$USER|${JOBSET_NAME})" | awk '{print $1}')
+    ;;
+  debug-ports)
+    port="${2:-29000}"
+    if [ "$INTERACTIVE" = false ] && [ ${#ACTIONS[@]} -gt 0 ]; then
+      port="${ACTIONS[0]}"
+      ACTIONS=("${ACTIONS[@]:1}")
+    fi
+    echo "Searching for pods with hostPort: $port"
+    kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.spec.containers[*].ports[?(@.hostPort)].hostPort}{"\n"}{end}' | grep "$port" || echo "No pods found with hostPort $port."
+    ;;
+  debug-labels)
+    # Try to find a node name automatically
+    node_name=$(kubectl get nodes | grep gke-tpu- | head -n 1 | awk '{print $1}')
+    read -e -p "Node name [$node_name]: " input_node
+    node_name="${input_node:-$node_name}"
+
+    # List and pick flavor
+    echo "Available Resource Flavors:"
+    flavors=($(kubectl get resourceflavors -o jsonpath='{.items[*].metadata.name}'))
+    if [ ${#flavors[@]} -eq 0 ]; then
+      echo "No resource flavors found."
+      flavor_name=""
+    else
+      for i in "${!flavors[@]}"; do
+        echo "  [$i] ${flavors[$i]}"
+      done
+      read -p "Select flavor index [0]: " flavor_idx
+      flavor_idx="${flavor_idx:-0}"
+      flavor_name="${flavors[$flavor_idx]}"
+    fi
+
+    debug_labels "$JOBSET_NAME" "$node_name" "$flavor_name"
     ;;
   port-forward)
     FORWARD_PORT="${FORWARD_PORT:-8888}"
@@ -588,7 +623,9 @@ while true; do
     echo "https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$JOBSET_NAME/overview?project=$PROJECT"
     ;;
   dash-all)
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
     echo "jobs: https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$JOBSET_NAME/overview?project=$PROJECT"
+    echo "evts: https://console.cloud.google.com/kubernetes/pod/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$HEAD_POD/events?project=$PROJECT"
     echo "disk: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
     ;;
   quit)
