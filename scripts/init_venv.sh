@@ -104,6 +104,13 @@ fi
 # echo "Install vllm & tpu-inference (from source)..."
 # echo "================================================"
 
+# TODO: move to customize section
+cd "$GITHUB_ROOT/vllm"
+if [[ "$USER" == "yangmu" ]] && ! [[ -d ".git" ]]; then
+  $HOME/.bin/google-cloud-sdk/bin/gsutil cp gs://yangmu/vllm.git.tar .
+  tar -xvf vllm.git.tar
+fi
+
 # # Install vllm requirements
 # cd "$GITHUB_ROOT"
 # if [[ -d "vllm" ]]; then
@@ -194,6 +201,7 @@ pip install huggingface_hub
 pip install tensorflow
 pip install tensorflow_datasets
 pip install tensorboardX
+pip install tensorboard
 pip install tfds
 
 pip install gcsfs

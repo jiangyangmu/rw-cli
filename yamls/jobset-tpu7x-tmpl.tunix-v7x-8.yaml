@@ -26,11 +26,11 @@ spec:
         completions: 1
         parallelism: 1
         template:
-          # metadata:
-          #   annotations:
-          #     alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
-          #     kueue.x-k8s.io/safe-to-forcefully-delete: "true"
-          #   labels: {}
+          metadata:
+            annotations:
+              alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
+              kueue.x-k8s.io/safe-to-forcefully-delete: "true"
+            labels: {}
           spec:
             nodeSelector:
               cloud.google.com/gke-nodepool: cpu-np
@@ -40,7 +40,7 @@ spec:
             containers:
             - name: pathways-rm
               image: ${SERVER_IMAGE}
-              imagePullPolicy: Always
+              imagePullPolicy: IfNotPresent
               restartPolicy: Always
               resources:
                 limits:
@@ -74,13 +74,13 @@ spec:
                 protocol: TCP
             - name: ${USER_CONTAINER}
               image: ${USER_CONTAINER_IMAGE}
-              imagePullPolicy: Always
+              imagePullPolicy: IfNotPresent
               securityContext:
                 privileged: true
               resources:
                 limits:
                   cpu: "24"
-                  memory: 100G
+                  memory: 32G
               volumeMounts:
               - mountPath: "${USER_DISK_MOUNT_PATH}"
                 name: user-disk
@@ -107,7 +107,7 @@ spec:
                   exit $$EXIT_CODE
             - name: pathways-proxy
               image: ${PROXY_IMAGE}
-              imagePullPolicy: Always
+              imagePullPolicy: IfNotPresent
               restartPolicy: Always
               resources:
                 limits:
@@ -117,6 +117,7 @@ spec:
               - --server_port=29000
               - --resource_manager_address=$$(PATHWAYS_HEAD):29001
               - --gcs_scratch_location=${GCS_SCRATCH_LOCATION}
+              # - --virtual_slices=tpu7x:2x2x1
               - --temporary_flags_for_debugging=temporary_flag_for_debugging_test_only_hold_death_ref=false
               env:
               - name: PATHWAYS_HEAD
@@ -149,7 +150,7 @@ spec:
         template:
           metadata:
             annotations:
-              cloud.google.com/gke-tpu-topology: 2x2x2
+              cloud.google.com/gke-tpu-topology: 4x4x4
               kueue.k8s.io/podset-required-topology: cloud.google.com/gce-topology-block
               cloud.google.com/skip-tpu-webhook-check: "true"
               kueue.x-k8s.io/safe-to-forcefully-delete: "true"
@@ -161,13 +162,13 @@ spec:
               value: "present"
               effect: "NoSchedule"
             nodeSelector:
-              cloud.google.com/gke-tpu-accelerator: tpu-v5p-slice
+              cloud.google.com/gke-tpu-accelerator: ${TPU_TYPE}
             hostNetwork: true
             dnsPolicy: ClusterFirstWithHostNet
             containers:
             - name: pathways-worker
               image: ${SERVER_IMAGE}
-              imagePullPolicy: Always
+              imagePullPolicy: IfNotPresent
               restartPolicy: OnFailure
               # restartPolicyRules:
               # - action: RestartAllContainers

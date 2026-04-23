@@ -13,8 +13,9 @@ export JOBSET_NAMESPACE="default"
 
 ## container images
 
-export IMAGE_PATHWAYS_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/gke/wenxindong/unsanitized_server@sha256:3ffb32b12f6b8cbf4f12cf08ecc9fcfda720b171f4ec9d4131c95f5eeb84d2ae'
-export IMAGE_PATHWAYS_PROXY_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/gke/wenxindong/unsanitized_proxy_server@sha256:86fedb263c8221bb878c2d301cb45e7c93f54f62872c5c79b055a267da780f42'
+export IMAGE_PATHWAYS_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/gke/ksadi/unsanitized_server@sha256:bea35fb014edf250718ce32820777ceb943dfdcf08a593b3fb762ad9ea433fdc'
+export IMAGE_PATHWAYS_PROXY_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/gke/ksadi/unsanitized_proxy_server@sha256:e5ad4ef0ec907ba2378394f59c4ba074a82231112c03d7f80d7c4a38b19c043c'
+
 # export IMAGE_PATHWAYS_SIDECAR='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/colocated_python_server:jax-0.9.1'
 export IMAGE_WORKSPACE="vllm/vllm-tpu:latest"
 
@@ -29,6 +30,11 @@ export WORKSPACE_DISK_NAME="$USER-workspace-disk"
 export WORKSPACE_DISK_SIZE="512Gi"
 export WORKSPACE_DISK_ZONE=$ZONE
 
+# gcloud auth check
+if ! gcloud auth print-access-token &>/dev/null; then
+  echo "No active gcloud account found. Please run 'gcloud auth login'."
+  return 1
+fi
 if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT &>/dev/null; then
   :
 else
