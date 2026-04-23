@@ -165,8 +165,8 @@ source "src/utils.sh"
 
 # enter kube context
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER}"
+gcloud container clusters get-credentials $CLUSTER --region=$REGION --project=$PROJECT --dns-endpoint &>/dev/null || { echo "gcloud get-credentials failed"; exit 1; }
 if ! [ -f "$KUBECONFIG" ]; then
-    gcloud container clusters get-credentials $CLUSTER --region=$REGION --project=$PROJECT --dns-endpoint && \
     kubectl config set-context --current --namespace=$JOBSET_NAMESPACE && \
     kubectl get namespaces
 fi
