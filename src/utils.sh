@@ -237,3 +237,49 @@ _unregister_disk() {
 
   return 0
 }
+
+select_preset() {
+  local presets_dir="presets"
+  local session_file="$HOME/.rw-cli/session/${USER}-${PPID}"
+
+  # try to load existing session for this terminal
+  mkdir -p "$HOME/.rw-cli/session"
+  if [[ -f "$session_file" ]]; then
+    source "$session_file"
+    if [[ -n "$JOBSET_NAME" ]]; then
+      # echo "Restored session from $(basename "$session_file")"
+      return 0
+    fi
+  fi
+
+  local preset_files=(${presets_dir}/*.sh)
+
+  if [ ! -e "${preset_files[0]}" ]; then
+    echo "no presets found in $presets_dir."
+    return 1
+  fi
+
+  echo "available presets:"
+  for i in "${!preset_files[@]}"; do
+    local preset_name=$(basename "${preset_files[$i]}" .sh)
+    echo "  [$i] ${preset_name%.sh}"
+  done
+
+  local selection
+  while true; do
+    read -p "select a preset index [0]: " selection
+    selection=${selection:-0}
+    if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -lt "${#preset_files[@]}" ]; then
+      break
+    fi
+    echo "invalid selection. please try again."
+  done
+
+  local selected_preset="${preset_files[$selection]}"
+  echo "sourcing preset: $selected_preset"
+  source "$selected_preset"
+
+  # save selection for this terminal session
+  local absolute_preset=$(realpath "$selected_preset")
+  echo "source \"$absolute_preset\"" > "$session_file"
+}

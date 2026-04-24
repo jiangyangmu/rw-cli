@@ -64,6 +64,12 @@
 #
 set -e
 
+SCRIPT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
+cd $SCRIPT_ROOT
+
+source "src/utils.sh"
+[[ -z "${JOBSET_NAME}" ]] && { select_preset || exit 1; }
+
 # ============= Environment Variables begin =============
 # don't change these, set via presets/<cluster>.sh
 
@@ -153,7 +159,7 @@ fi
 # gcloud auth check
 if ! gcloud auth print-access-token &>/dev/null; then
   echo "No active gcloud account found. Please run 'gcloud auth login'."
-  return 1
+  exit 1
 fi
 # if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
 #   echo "No active gcloud account found. Please run 'gcloud auth login'."
@@ -175,14 +181,6 @@ else
     echo "disk related features will be disabled."
   fi
 fi
-
-SCRIPT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
-
-# go to script root
-cd $SCRIPT_ROOT
-
-# import util functions
-source "src/utils.sh"
 
 generate_jobset_yaml() {
   local workspace_disk_pvc_name=""
