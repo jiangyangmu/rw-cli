@@ -161,7 +161,29 @@ SCRIPT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 
 # go to script root
 cd $SCRIPT_ROOT
+
+# import util functions
 source "src/utils.sh"
+
+generate_jobset_yaml() {
+  _generate_jobset_yaml "${WORKSPACE_JOBSET_TMPL}" "${JOBSET_NAME}" "${JOBSET_TPU_TYPE}" "${JOBSET_TPU_TOPO}" "${IMAGE_PATHWAYS_SERVER}" "${IMAGE_PATHWAYS_PROXY_SERVER}" "${WORKSPACE_CONTAINER}" "${IMAGE_WORKSPACE}" "${WORKSPACE_DISK_PVC_NAME}" "${WORKSPACE_REMOTE_ROOT}"
+}
+
+generate_pv_yaml() {
+  _generate_pv_yaml "${WORKSPACE_DISK_PV_NAME}" "${WORKSPACE_DISK_CSI_HANDLE}" "${WORKSPACE_DISK_SIZE}"
+}
+
+generate_pvc_yaml() {
+  _generate_pvc_yaml "${WORKSPACE_DISK_PVC_NAME}" "${WORKSPACE_DISK_SIZE}" "${WORKSPACE_DISK_PV_NAME}"
+}
+
+register_disk() {
+  _register_disk "${WORKSPACE_DISK_PVC_NAME}" "${WORKSPACE_DISK_PV_NAME}" "${WORKSPACE_DISK_CSI_HANDLE}" "${WORKSPACE_DISK_SIZE}" "${JOBSET_NAMESPACE}"
+}
+
+unregister_disk() {
+  _unregister_disk "${JOBSET_NAME}" "${WORKSPACE_DISK_PVC_NAME}" "${WORKSPACE_DISK_PV_NAME}" "${WORKSPACE_DISK_CSI_HANDLE}" "${WORKSPACE_DISK_SIZE}"
+}
 
 # enter kube context
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER}"
@@ -172,110 +194,6 @@ if ! [ -f "$KUBECONFIG" ]; then
 fi
 kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" >/dev/null || { echo "kubectl use-context failed"; exit 1; }
 kubectl config set-context --current --namespace=$JOBSET_NAMESPACE || { echo "kubectl set-context failed"; exit 1; }
-
-generate_jobset_yaml() {
-  # TMPL_FILE="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.yaml"
-  # TMPL_FLAGS=""
-
-  TMPL_FILE="${WORKSPACE_JOBSET_TMPL}"
-  TMPL_FLAGS=""
-  TMPL_FLAGS+=" --user_container=${WORKSPACE_CONTAINER}"
-  TMPL_FLAGS+=" --user_container_image=${IMAGE_WORKSPACE}"
-  TMPL_FLAGS+=" --user_pvc_name=${WORKSPACE_DISK_PVC_NAME}"
-  TMPL_FLAGS+=" --user_disk_mount_path=${WORKSPACE_REMOTE_ROOT}"
-
-  # if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
-  #   if [[ "$JOBSET_NAMESPACE" =~ ^poc-(.+)$ ]]; then
-  #     TMPL_FLAGS+=" --bodaborg_super_alpha_cluster_priority_class=${BASH_REMATCH[1]}"
-  #   else
-  #     echo "Error: JOBSET_NAMESPACE '$JOBSET_NAMESPACE' must match 'poc-<priority_class>' for cluster '$CLUSTER'." >&2
-  #     return
-  #   fi
-  # fi
-
-  python3 src/yaml_gen_jobset.py "$TMPL_FILE" \
-    --jobset_name="$JOBSET_NAME" \
-    --server_image="$IMAGE_PATHWAYS_SERVER" \
-    --proxy_image="$IMAGE_PATHWAYS_PROXY_SERVER" \
-    --tpu_type="$JOBSET_TPU_TYPE:$JOBSET_TPU_TOPO" \
-    $TMPL_FLAGS
-}
-
-generate_pv_yaml() {
-  TMPL_FILE="yamls/user-pv.yaml"
-  python3 src/yaml_gen_pv.py "$TMPL_FILE" \
-    --user_pv_name="${WORKSPACE_DISK_PV_NAME}" \
-    --user_pv_handle="${WORKSPACE_DISK_CSI_HANDLE}" \
-    --user_pv_size="${WORKSPACE_DISK_SIZE}"
-}
-
-generate_pvc_yaml() {
-  TMPL_FILE="yamls/user-pvc.yaml"
-  python3 src/yaml_gen_pvc.py "$TMPL_FILE" \
-    --user_pvc_name="${WORKSPACE_DISK_PVC_NAME}" \
-    --user_pvc_size="${WORKSPACE_DISK_SIZE}" \
-    --user_pv_name="${WORKSPACE_DISK_PV_NAME}"
-}
-
-register_disk() {
-  # delete pvc if namespace not match
-  for namespace in $(kubectl get pvc --all-namespaces 2>/dev/null | grep "$WORKSPACE_DISK_PVC_NAME" | grep -v "$JOBSET_NAMESPACE" | awk '{print $1}'); do
-    echo "deleting existing pvc '$WORKSPACE_DISK_PVC_NAME' in namespace '$namespace'"
-    kubectl delete pvc "$WORKSPACE_DISK_PVC_NAME" -n "$namespace"
-  done
-  # delete pv if claim not match
-  for claim in $(kubectl get pv --all-namespaces 2>/dev/null | grep "$WORKSPACE_DISK_PV_NAME" | grep -v "$JOBSET_NAMESPACE/$WORKSPACE_DISK_PVC_NAME" | awk '{print $6}'); do
-    echo "deleting existing pv '$WORKSPACE_DISK_PV_NAME' with claim '$claim'"
-    kubectl patch pv "$WORKSPACE_DISK_PV_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge &>/dev/null
-    kubectl delete pv "$WORKSPACE_DISK_PV_NAME"
-  done
-
-  if ! kubectl get pv "$WORKSPACE_DISK_PV_NAME" &>/dev/null; then
-    generate_pv_yaml | kubectl apply -f - \
-    && { echo "added pv '$WORKSPACE_DISK_PV_NAME'"; } \
-    || { echo "failed to register $WORKSPACE_DISK_PV_NAME"; return 1; }
-  else
-    echo "found pv '$WORKSPACE_DISK_PV_NAME'"
-  fi
-  if ! kubectl get pvc "$WORKSPACE_DISK_PVC_NAME" &>/dev/null; then
-    generate_pvc_yaml | kubectl apply -f - \
-    && { echo "added pvc '$WORKSPACE_DISK_PVC_NAME' in namespace '$JOBSET_NAMESPACE'"; } \
-    || { echo "failed to register $WORKSPACE_DISK_PVC_NAME"; return 1; }
-  else
-    echo "found pvc '$WORKSPACE_DISK_PVC_NAME'"
-  fi
-
-  return 0
-}
-
-unregister_disk() {
-  if kubectl get jobset "$JOBSET_NAME" &>/dev/null; then
-    echo "Error: JobSet '$JOBSET_NAME' is still running. Please run 'server-stop' first."
-    return 1
-  fi
-
-  if kubectl get pvc "$WORKSPACE_DISK_PVC_NAME" &>/dev/null; then
-    # kubectl patch pvc "$WORKSPACE_DISK_PVC_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge
-
-    generate_pvc_yaml | kubectl delete -f - --timeout=10s \
-    && { echo "unregistered $WORKSPACE_DISK_PVC_NAME"; } \
-    || { echo "failed to unregister $WORKSPACE_DISK_PVC_NAME"; return 1; }
-  else
-    echo "pvc '$WORKSPACE_DISK_PVC_NAME' already deleted"
-  fi
-
-  if kubectl get pv "$WORKSPACE_DISK_PV_NAME" &>/dev/null; then
-    kubectl patch pv "$WORKSPACE_DISK_PV_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge &>/dev/null
-
-    generate_pv_yaml | kubectl delete -f - --timeout=10s \
-    && { echo "unregistered $WORKSPACE_DISK_PV_NAME"; } \
-    || { echo "failed to unregister $WORKSPACE_DISK_PV_NAME"; return 1; }
-  else
-    echo "pv '$WORKSPACE_DISK_PV_NAME' already deleted"
-  fi
-
-  return 0
-}
 
 # auto register disk
 register_disk || exit 1
