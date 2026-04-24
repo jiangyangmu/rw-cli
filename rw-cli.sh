@@ -518,9 +518,9 @@ while true; do
     ;;
   disk-unregister)
     generate_pvc_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PVC_NAME"
-    # if pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$USER-pv/details?project=$PROJECT
+    # if pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$WORKSPACE_DISK_PVC_NAME/details?project=$PROJECT
     # manually remove finalizer content. (be cautious, make sure you know what you are doing)
-    echo "If pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$USER-pv/details?project=$PROJECT"
+    echo "If pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$WORKSPACE_DISK_PVC_NAME/details?project=$PROJECT"
     generate_pv_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PV_NAME"
     ;;
   disk-cleanup)

@@ -58,7 +58,7 @@ else
   fi
 fi
 
-export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/disks/$USER-workspace-disk"
+export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME"
 export WORKSPACE_DISK_PV_NAME="${USER}-pv"
 export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
 

@@ -1,3 +1,10 @@
+if [ -f "profiles/$USER.sh" ]; then
+  source "profiles/$USER.sh"
+else
+  echo "Profile $USER.sh not found in profiles/."
+  return 1
+fi
+
 ## jobset
 
 export PROJECT="tpu-prod-env-automated"
