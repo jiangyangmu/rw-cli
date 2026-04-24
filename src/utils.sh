@@ -63,36 +63,56 @@ debug_labels() {
   local node_labels=$(kubectl get node "$node_name" -o json | jq -r '.metadata.labels')
 
   echo -e "\n🔍 Comparing JobSet '$jobset_name' vs Node '$node_name'"
-  echo "--------------------------------------------------------------------------------"
-  printf "%-45s %-15s %-15s\n" "LABEL KEY" "EXPECTED" "ACTUAL"
-  echo "--------------------------------------------------------------------------------"
+  echo "----------------------------------------------------------------------------------------------------------------"
+  printf "%-45s %-25s %-25s %-25s\n" "LABEL KEY" "Jobset has" "Node wants" "How to fix"
+  echo "----------------------------------------------------------------------------------------------------------------"
 
-  echo "$js_selectors" | jq -r 'to_entries[] | .key + " " + .value' | while read -r key val; do
+  # Iterate over union of keys
+  jq -n --argjson js "$js_selectors" --argjson node "$node_labels" \
+    '$js + $node | keys[]' | jq -r . | while read -r key; do
+    local expected_val=$(echo "$js_selectors" | jq -r --arg K "$key" '.[$K]')
     local actual_val=$(echo "$node_labels" | jq -r --arg K "$key" '.[$K]')
-    if [ "$actual_val" == "$val" ]; then
-      printf "✅ %-43s %-15s %-15s\n" "$key" "$val" "$actual_val"
-    elif [ "$actual_val" == "null" ]; then
-      printf "❌ %-43s %-15s %-15s\n" "$key" "$val" "(missing)"
-    else
-      printf "❌ %-43s %-15s %-15s\n" "$key" "$val" "$actual_val"
+
+    # Filter: only show if key is in js_selectors OR if it's a "TPU/GKE" relevant label
+    if [[ "$expected_val" != "null" ]] || [[ "$key" =~ cloud.google.com/|kueue.x-k8s.io/ ]]; then
+      if [ "$expected_val" == "$actual_val" ]; then
+        printf "✅ %-43s %-25s %-25s\n" "$key" "$expected_val" "$actual_val"
+      elif [ "$expected_val" == "null" ]; then
+        :
+        # printf "✅ %-43s %-25s %-25s\n" "$key" "(not set)" "$actual_val"
+      elif [ "$actual_val" == "null" ]; then
+        printf "❌ %-43s %-25s %-25s %-25s\n" "$key" "$expected_val" "(not set)" "remove"
+      else
+        printf "❌ %-43s %-25s %-25s %-25s\n" "$key" "$expected_val" "$actual_val" "update to match"
+      fi
     fi
   done
 
   if [ -n "$flavor_name" ]; then
     local flavor_labels=$(kubectl get resourceflavors "$flavor_name" -o json | jq -r '.spec.nodeLabels // {}')
     echo -e "\n🔍 Comparing JobSet '$jobset_name' vs Flavor '$flavor_name'"
-    echo "--------------------------------------------------------------------------------"
-    printf "%-45s %-15s %-15s\n" "LABEL KEY" "EXPECTED" "ACTUAL"
-    echo "--------------------------------------------------------------------------------"
+    echo "----------------------------------------------------------------------------------------------------------------"
+    printf "%-45s %-25s %-25s %-25s\n" "LABEL KEY" "Jobset has" "Flavor wants" "How to fix"
+    echo "----------------------------------------------------------------------------------------------------------------"
 
-    echo "$js_selectors" | jq -r 'to_entries[] | .key + " " + .value' | while read -r key val; do
+    # Iterate over union of keys
+    jq -n --argjson js "$js_selectors" --argjson flavor "$flavor_labels" \
+      '$js + $flavor | keys[]' | jq -r . | while read -r key; do
+      local expected_val=$(echo "$js_selectors" | jq -r --arg K "$key" '.[$K]')
       local actual_val=$(echo "$flavor_labels" | jq -r --arg K "$key" '.[$K]')
-      if [ "$actual_val" == "$val" ]; then
-        printf "✅ %-43s %-15s %-15s\n" "$key" "$val" "$actual_val"
-      elif [ "$actual_val" == "null" ]; then
-        printf "❌ %-43s %-15s %-15s\n" "$key" "$val" "(missing)"
+
+      # Filter: only show if key is in js_selectors OR if it's a "TPU/GKE/Flavor" relevant label
+      if [[ "$expected_val" != "null" ]] || [[ "$key" =~ cloud.google.com/|kueue.x-k8s.io/ ]]; then
+        if [ "$expected_val" == "$actual_val" ]; then
+          printf "✅ %-43s %-25s %-25s\n" "$key" "$expected_val" "$actual_val"
+        elif [ "$expected_val" == "null" ]; then
+          :
+          # printf "✅ %-43s %-25s %-25s\n" "$key" "(not set)" "$actual_val"
+        elif [ "$actual_val" == "null" ]; then
+        printf "❌ %-43s %-25s %-25s %-25s\n" "$key" "$expected_val" "(not set)" "remove"
       else
-        printf "❌ %-43s %-15s %-15s\n" "$key" "$val" "$actual_val"
+        printf "❌ %-43s %-25s %-25s %-25s\n" "$key" "$expected_val" "$actual_val" "update to match"
+        fi
       fi
     done
   fi
