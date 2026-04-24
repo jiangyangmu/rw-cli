@@ -262,11 +262,12 @@ set +e
 
 while true; do
   trap 'echo' INT
-  if [ "$INTERACTIVE" = true ]; then
+  if [ ${#ACTIONS[@]} -gt 0 ]; then
+    action="${ACTIONS[0]}"; ACTIONS=("${ACTIONS[@]:1}")
+  elif [ "$INTERACTIVE" = true ]; then
     read -e -p "${CLUSTER}:${JOBSET_NAME} > " action
   else
-    [ ${#ACTIONS[@]} -eq 0 ] && break
-    action="${ACTIONS[0]}"; ACTIONS=("${ACTIONS[@]:1}")
+    break
   fi
 
   case $action in
