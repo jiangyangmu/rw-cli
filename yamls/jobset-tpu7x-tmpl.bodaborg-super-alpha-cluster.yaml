@@ -81,9 +81,7 @@ spec:
                 limits:
                   cpu: "24" # "64"
                   memory: 100G # 100
-              volumeMounts:
-              - mountPath: "${USER_DISK_MOUNT_PATH}"
-                name: user-disk
+              volumeMounts: ${USER_DISK_VOLUMN_MOUNT}
               command:
                 - bash
                 - -c
@@ -128,14 +126,11 @@ spec:
                 protocol: TCP
               restartPolicy: Always
             terminationGracePeriodSeconds: 10
-            volumes:
+            volumes: ${USER_DISK_VOLUMN}
             - name: shared-tmp
               hostPath:
                 path: /tmp
                 type: DirectoryOrCreate
-            - name: user-disk
-              persistentVolumeClaim:
-                claimName: ${USER_PVC_NAME}
   - groupName: default
     name: worker
     replicas: ${REPLICAS}

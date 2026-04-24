@@ -15,7 +15,7 @@ export CLUSTER="tunix-v5p-16"
 export JOBSET_TPU_TYPE="tpuv5"
 export JOBSET_TPU_TOPO="2x2x2"
 
-export JOBSET_NAME="${USER%_google_com}-ds"
+export JOBSET_NAME="${USER%_google_com}-ws"
 export JOBSET_NAMESPACE="default"
 
 ## container images
@@ -39,25 +39,6 @@ export WORKSPACE_JOBSET_TMPL="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.$CLUSTER.yaml
 export WORKSPACE_DISK_NAME="${WORKSPACE_USER}-workspace-disk"
 export WORKSPACE_DISK_SIZE="512Gi"
 export WORKSPACE_DISK_ZONE=$ZONE
-
-# gcloud auth check
-if ! gcloud auth print-access-token &>/dev/null; then
-  echo "No active gcloud account found. Please run 'gcloud auth login'."
-  return 1
-fi
-if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT &>/dev/null; then
-  :
-else
-  echo -n "Disk $WORKSPACE_DISK_NAME not found. Create it? (y/n) "
-  read -r REPLY
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT \
-    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT" \
-    || { echo "failed to create $WORKSPACE_DISK_NAME"; export WORKSPACE_DISK_NAME=""; }
-  else
-    export WORKSPACE_DISK_NAME=""
-  fi
-fi
 
 export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME"
 export WORKSPACE_DISK_PV_NAME="${WORKSPACE_USER}-pv"

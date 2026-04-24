@@ -26,7 +26,8 @@ export IMAGE_PATHWAYS_PROXY_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pa
 # export IMAGE_PATHWAYS_SIDECAR='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/colocated_python_server:jax-0.9.1'
 
 # export IMAGE_WORKSPACE="vllm/vllm-tpu:latest"
-export IMAGE_WORKSPACE="us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/tunix_base_image:20260414"
+# export IMAGE_WORKSPACE="us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/tunix_base_image:20260414"
+export IMAGE_WORKSPACE="us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/tunix_base_image:20260422"
 
 ## remote workspace
 
@@ -39,25 +40,6 @@ export WORKSPACE_JOBSET_TMPL="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.$CLUSTER.yaml
 export WORKSPACE_DISK_NAME="${WORKSPACE_USER}-workspace-disk"
 export WORKSPACE_DISK_SIZE="512Gi"
 export WORKSPACE_DISK_ZONE=$ZONE
-
-# gcloud auth check
-if ! gcloud auth print-access-token &>/dev/null; then
-  echo "No active gcloud account found. Please run 'gcloud auth login'."
-  return 1
-fi
-if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT &>/dev/null; then
-  :
-else
-  echo -n "Disk $WORKSPACE_DISK_NAME not found. Create it? (y/n) "
-  read -r REPLY
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT \
-    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT" \
-    || { echo "failed to create $WORKSPACE_DISK_NAME"; export WORKSPACE_DISK_NAME=""; }
-  else
-    export WORKSPACE_DISK_NAME=""
-  fi
-fi
 
 export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME"
 export WORKSPACE_DISK_PV_NAME="${WORKSPACE_USER}-pv"

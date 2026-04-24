@@ -120,11 +120,6 @@ if [ ${#JOBSET_NAME} -gt 15 ]; then
   echo "Error: JOBSET_NAME '$JOBSET_NAME' is too long (${#JOBSET_NAME} chars). Max 15 chars allowed."
   exit 1
 fi
-if [[ ! "$WORKSPACE_DISK_CSI_HANDLE" == *"$PROJECT"* ]]; then
-  echo "Error: WORKSPACE_DISK_CSI_HANDLE does not contain PROJECT '$PROJECT'."
-  echo "WORKSPACE_DISK_CSI_HANDLE=$WORKSPACE_DISK_CSI_HANDLE"
-  exit 1
-fi
 REQUIRED_VARS=(
   PROJECT REGION ZONE CLUSTER
   JOBSET_TPU_TYPE JOBSET_TPU_TOPO JOBSET_NAME JOBSET_NAMESPACE
@@ -149,13 +144,36 @@ GLOBAL_SYNC_EXCLUDE+=".venv,.vscode,.git,"
 GLOBAL_SYNC_EXCLUDE+="*.tar,"
 export WORKSPACE_SYNC_EXCLUDE="$WORKSPACE_SYNC_EXCLUDE,$GLOBAL_SYNC_EXCLUDE"
 
-# enter venv
-source "$WORKSPACE_LOCAL_VENV/bin/activate"
+# check python3 is available
+if ! command -v python3 &>/dev/null; then
+  echo "Error: python3 is not installed or not in PATH."
+  exit 1
+fi
 
 # gcloud auth check
-if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
+if ! gcloud auth print-access-token &>/dev/null; then
   echo "No active gcloud account found. Please run 'gcloud auth login'."
-  exit 1
+  return 1
+fi
+# if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
+#   echo "No active gcloud account found. Please run 'gcloud auth login'."
+#   exit 1
+# fi
+
+# workspace disk
+if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT &>/dev/null; then
+  :
+else
+  echo -n "disk '$WORKSPACE_DISK_NAME' not found in '$PROJECT:$WORKSPACE_DISK_ZONE'. create it? (y/N) "
+  read -r REPLY
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT \
+    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT" \
+    || { echo "failed to create $WORKSPACE_DISK_NAME"; export WORKSPACE_DISK_NAME=""; }
+  else
+    export WORKSPACE_DISK_NAME=""
+    echo "disk related features will be disabled."
+  fi
 fi
 
 SCRIPT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
@@ -167,18 +185,37 @@ cd $SCRIPT_ROOT
 source "src/utils.sh"
 
 generate_jobset_yaml() {
-  _generate_jobset_yaml "${WORKSPACE_JOBSET_TMPL}" "${JOBSET_NAME}" "${JOBSET_TPU_TYPE}" "${JOBSET_TPU_TOPO}" "${IMAGE_PATHWAYS_SERVER}" "${IMAGE_PATHWAYS_PROXY_SERVER}" "${WORKSPACE_CONTAINER}" "${IMAGE_WORKSPACE}" "${WORKSPACE_DISK_PVC_NAME}" "${WORKSPACE_REMOTE_ROOT}"
+  local workspace_disk_pvc_name=""
+  local workspace_remote_root=""
+  if [[ -n "$WORKSPACE_DISK_NAME" ]]; then
+    workspace_disk_pvc_name="$WORKSPACE_DISK_PVC_NAME"
+    workspace_remote_root="$WORKSPACE_REMOTE_ROOT"
+  fi
+
+  _generate_jobset_yaml "${WORKSPACE_JOBSET_TMPL}" "${JOBSET_NAME}" "${JOBSET_TPU_TYPE}" "${JOBSET_TPU_TOPO}" "${IMAGE_PATHWAYS_SERVER}" "${IMAGE_PATHWAYS_PROXY_SERVER}" "${WORKSPACE_CONTAINER}" "${IMAGE_WORKSPACE}" "${workspace_disk_pvc_name}" "${workspace_remote_root}"
 }
 
 generate_pv_yaml() {
+  if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
+    echo "error: disk doesn't exist."
+    return 1
+  fi
   _generate_pv_yaml "${WORKSPACE_DISK_PV_NAME}" "${WORKSPACE_DISK_CSI_HANDLE}" "${WORKSPACE_DISK_SIZE}"
 }
 
 generate_pvc_yaml() {
+  if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
+    echo "error: disk doesn't exist."
+    return 1
+  fi
   _generate_pvc_yaml "${WORKSPACE_DISK_PVC_NAME}" "${WORKSPACE_DISK_SIZE}" "${WORKSPACE_DISK_PV_NAME}"
 }
 
 register_disk() {
+  if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
+    echo "error: disk doesn't exist."
+    return 1
+  fi
   _register_disk "${WORKSPACE_DISK_PVC_NAME}" "${WORKSPACE_DISK_PV_NAME}" "${WORKSPACE_DISK_CSI_HANDLE}" "${WORKSPACE_DISK_SIZE}" "${JOBSET_NAMESPACE}"
 }
 
@@ -188,29 +225,35 @@ unregister_disk() {
 
 # enter kube context
 export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config.$PROJECT.$REGION.$CLUSTER}"
-gcloud container clusters get-credentials $CLUSTER --region=$REGION --project=$PROJECT --dns-endpoint &>/dev/null || { echo "gcloud get-credentials failed"; exit 1; }
-if ! [ -f "$KUBECONFIG" ]; then
-    kubectl config set-context --current --namespace=$JOBSET_NAMESPACE && \
-    kubectl get namespaces
+if ! [ -f "$KUBECONFIG" ] || ! kubectl get namespaces &>/dev/null; then
+  gcloud container clusters get-credentials $CLUSTER --region=$REGION --project=$PROJECT --dns-endpoint &>/dev/null || { echo "gcloud get-credentials failed"; exit 1; }
+  kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" >/dev/null || { echo "kubectl use-context failed"; exit 1; }
 fi
-kubectl config use-context "gke_${PROJECT}_${REGION}_${CLUSTER}" >/dev/null || { echo "kubectl use-context failed"; exit 1; }
-kubectl config set-context --current --namespace=$JOBSET_NAMESPACE || { echo "kubectl set-context failed"; exit 1; }
-
-# auto register disk
-register_disk || exit 1
+kubectl config set-context --current --namespace=$JOBSET_NAMESPACE >/dev/null || { echo "kubectl set-context failed"; exit 1; }
 
 # detect run mode
 if [ -z "$1" ]; then
   INTERACTIVE=true
+  echo
   echo "cluster:   ${CLUSTER}"
   echo "namespace: ${JOBSET_NAMESPACE}"
   echo "jobset:    ${JOBSET_NAME}"
   echo "tpu:       ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
   echo "tmpl:      ${WORKSPACE_JOBSET_TMPL}"
-  echo "disk:      ${WORKSPACE_DISK_CSI_HANDLE}"
+
+  [[ -n "$WORKSPACE_DISK_NAME" ]] \
+  && echo "disk:      ${WORKSPACE_DISK_CSI_HANDLE}" \
+  || echo "disk:      null"
+
   echo "local:     ${USER}:${WORKSPACE_LOCAL_ROOT}"
-  echo "remote:    ${WORKSPACE_USER}:${WORKSPACE_REMOTE_ROOT}"
-  echo "ignore:    ${WORKSPACE_SYNC_EXCLUDE}"
+
+  [[ -n "$WORKSPACE_DISK_NAME" ]] \
+  && echo "remote:    ${WORKSPACE_USER}:${WORKSPACE_REMOTE_ROOT}" \
+  || echo "remote:    null"
+
+  [[ -n "$WORKSPACE_DISK_NAME" ]] \
+  && echo "ignore:    ${WORKSPACE_SYNC_EXCLUDE}" \
+  || echo "ignore:    n/a"
   echo
 else
   INTERACTIVE=false
@@ -256,7 +299,7 @@ while true; do
     read -e -p "Output file [${JOBSET_NAME}.yaml]: " yaml_file
     yaml_file="${yaml_file:-${JOBSET_NAME}.yaml}"
     if [ -f "$yaml_file" ]; then
-      echo -n "File $yaml_file already exists. Overwrite? (y/n) "
+      echo -n "File $yaml_file already exists. Overwrite? (y/N) "
       read -r REPLY
       if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "Aborted."
@@ -270,6 +313,11 @@ while true; do
     fi
     ;;
   server-start)
+    # auto register disk
+    if [[ -n "$WORKSPACE_DISK_NAME" ]]; then
+      register_disk || { echo "error: failed to register disk"; continue; }
+    fi
+
     generate_jobset_yaml | kubectl apply -f - && echo "applied $JOBSET_NAME"
 
     until WORKLOAD=$(kubectl get workloads | grep "$JOBSET_NAME" | awk '{print $1}') && [ -n "$WORKLOAD" ]; do
@@ -286,6 +334,7 @@ while true; do
       if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
         kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
       fi
+      echo "SlicesCreated"
 
       kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
       kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
@@ -332,10 +381,15 @@ while true; do
     ;;
   worker-restart)
     # one worker down will trigger all workers to restart
-    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
+    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}'); [[ -z "$WORKER_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     kubectl exec -it "$WORKER_POD" -c pathways-worker -- /bin/sh -c "kill 1"
     ;;
   ssh-init)
+    if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
+      echo "error: 'ssh-init' requires disk, you can still use 'ssh-root'."
+      continue
+    fi
+
     echo -n "wait for head node ready"
     for i in {0..120}; do
       verify_head_running ${JOBSET_NAME} && { echo; break; }
@@ -346,7 +400,7 @@ while true; do
 
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
     if kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/sh -c "! [ -d '${WORKSPACE_REMOTE_ROOT}/rw-cli/' ]" 2>/dev/null; then
-      echo "error: rw-cli not found on remote workspace disk, please run 'disk-init' to init disk."
+      echo "error: rw-cli not found on remote workspace disk, please run 'disk-init' to do initial sync."
       continue
     fi
 
@@ -358,17 +412,27 @@ while true; do
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "${WORKSPACE_USER}" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; export VENV_PATH=${WORKSPACE_REMOTE_VENV}; bash -s" < "${SCRIPT_ROOT}/scripts/init_venv.sh"
     ;;
   ssh-root)
-    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
-    echo "ssh to $HEAD_POD"
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
+    echo "ssh to $HEAD_POD as root"
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/bash
     ;;
   ssh)
-    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
-    echo "ssh to $HEAD_POD"
+    if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
+      echo "error: 'ssh' requires disk, you can still use 'ssh-root'."
+      continue
+    fi
+
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
+    echo "ssh to $HEAD_POD as ${WORKSPACE_USER}"
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "${WORKSPACE_USER}"
     ;;
   ssh-run)
-    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+    if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
+      echo "error: 'ssh-run' requires disk, you can still use 'ssh-root'."
+      continue
+    fi
+
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     if [ ${#ACTIONS[@]} -gt 0 ]; then
       run_cmd="${ACTIONS[*]}"
       ACTIONS=()
@@ -379,16 +443,24 @@ while true; do
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "${WORKSPACE_USER}" -c "source ~/.zshrc 2>/dev/null; $run_cmd"
     ;;
   ssh-worker)
-    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
+    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}'); [[ -z "$WORKER_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     echo "ssh to $WORKER_POD"
     kubectl exec -it "$WORKER_POD" -- /bin/sh
     ;;
   bootstrap)
+    if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
+      echo "error: 'bootstrap' requires disk."
+      continue
+    fi
     ACTIONS=("server-start" "disk-init" "ssh-init" "${ACTIONS[@]}")
     ;;
   disk-init)
+    if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
+      echo "error: 'disk-init' requires disk."
+      continue
+    fi
     if ! kubectl get jobset "$JOBSET_NAME" &>/dev/null; then
-      echo "Error: JobSet '$JOBSET_NAME' is not running. Please run 'server-start' first."
+      echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."
       continue
     fi
     if kubectl get pv | grep -q "$WORKSPACE_DISK_PV_NAME"; then echo "$WORKSPACE_DISK_PV_NAME already registered"; else
@@ -398,8 +470,7 @@ while true; do
       generate_pvc_yaml | kubectl apply -f - && echo "registered $WORKSPACE_DISK_PVC_NAME"
     fi
     if [[ -z "$WORKSPACE_LOCAL_ROOT" ]]; then
-      echo "Error: WORKSPACE_LOCAL_ROOT is not set."
-      echo "Please set WORKSPACE_LOCAL_ROOT."
+      echo "error: WORKSPACE_LOCAL_ROOT is not set."
       exit 1
     fi
     # if ps aux | grep "devspace sync" | grep -q -v grep; then
@@ -419,8 +490,7 @@ while true; do
     ;;
   sync)
     if [[ -z "$WORKSPACE_LOCAL_ROOT" ]]; then
-      echo "Error: WORKSPACE_LOCAL_ROOT is not set."
-      echo "Please set WORKSPACE_LOCAL_ROOT."
+      echo "error: WORKSPACE_LOCAL_ROOT is not set."
       exit 1
     fi
     # if ps aux | grep "devspace sync" | grep -q -v grep; then
@@ -457,11 +527,11 @@ while true; do
     kubectl describe pods -l jobset.sigs.k8s.io/jobset-name=$JOBSET_NAME
     ;;
   desc-head)
-    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     kubectl describe pods $HEAD_POD
     ;;
   desc-worker)
-    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
+    WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}'); [[ -z "$WORKER_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     kubectl describe pods $WORKER_POD
     ;;
   desc-node)
@@ -485,7 +555,7 @@ while true; do
     unregister_disk
     ;;
   disk-cleanup)
-    echo -n "This will delete all disk resources ($WORKSPACE_DISK_PVC_NAME, $WORKSPACE_DISK_PV_NAME, and the GCE disk $WORKSPACE_DISK_NAME). Are you sure? (y/n) "
+    echo -n "This will delete all disk resources ($WORKSPACE_DISK_PVC_NAME, $WORKSPACE_DISK_PV_NAME, and the GCE disk $WORKSPACE_DISK_NAME). Are you sure? (y/N) "
     read -r REPLY
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
       echo "Aborted."
@@ -538,7 +608,7 @@ while true; do
     if ps aux | egrep "kubectl port-forward.*$FORWARD_PORT:$FORWARD_PORT" | grep -q -v grep; then
       echo "port-forward on port ${FORWARD_PORT} is already running"
     else
-      HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+      HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
       # localhost:FORWARD_PORT <=> HEAD_POD:FORWARD_PORT
       kubectl port-forward ${HEAD_POD} ${FORWARD_PORT}:${FORWARD_PORT} >/dev/null 2>/dev/null &
       echo "port-forward started on port ${FORWARD_PORT}"
@@ -546,7 +616,7 @@ while true; do
     ;;
   port-forward-auto)
     FORWARD_PORT="${FORWARD_PORT:-8888}"
-    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     echo "Starting auto port-forward for $HEAD_POD on port $FORWARD_PORT..."
     while true; do
       if ! ps aux | grep "kubectl port-forward" | grep "$FORWARD_PORT:$FORWARD_PORT" | grep -v grep > /dev/null; then
@@ -568,10 +638,10 @@ while true; do
     echo "https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$JOBSET_NAME/overview?project=$PROJECT"
     ;;
   dash-all)
-    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     echo "jobs: https://pantheon.corp.google.com/kubernetes/service/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$JOBSET_NAME/overview?project=$PROJECT"
     echo "evts: https://console.cloud.google.com/kubernetes/pod/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$HEAD_POD/events?project=$PROJECT"
-    echo "disk: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
+    [[ -n "$WORKSPACE_DISK_NAME" ]] && echo "disk: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
     ;;
   quit|exit)
     exit 0

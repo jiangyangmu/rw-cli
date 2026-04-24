@@ -38,32 +38,15 @@ export WORKSPACE_DISK_NAME="${WORKSPACE_USER}-workspace-disk"
 export WORKSPACE_DISK_SIZE="512Gi"
 export WORKSPACE_DISK_ZONE=$ZONE
 
-# gcloud auth check
-if ! gcloud auth print-access-token &>/dev/null; then
-  echo "No active gcloud account found. Please run 'gcloud auth login'."
-  return 1
-fi
-if gcloud compute disks describe $WORKSPACE_DISK_NAME --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT &>/dev/null; then
-  :
-else
-  echo -n "Disk $WORKSPACE_DISK_NAME not found. Create it? (y/n) "
-  read -r REPLY
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-    gcloud compute disks create $WORKSPACE_DISK_NAME --size=${WORKSPACE_DISK_SIZE/Gi/GB} --zone=$WORKSPACE_DISK_ZONE --project=$PROJECT \
-    && echo "$WORKSPACE_DISK_NAME created: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT" \
-    || { echo "failed to create $WORKSPACE_DISK_NAME"; export WORKSPACE_DISK_NAME=""; }
-  else
-    export WORKSPACE_DISK_NAME=""
-  fi
-fi
-
 export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME"
 export WORKSPACE_DISK_PV_NAME="${WORKSPACE_USER}-pv"
 export WORKSPACE_DISK_PVC_NAME="${WORKSPACE_USER}-pvc"
 
 # sync settings
-export WORKSPACE_REMOTE_ROOT="/mnt/disks/github" # mirrored remote codebase (disk mount path)
-export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # TODO: set your local codebase
+export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # your local codebase
+export WORKSPACE_LOCAL_VENV="${WORKSPACE_LOCAL_VENV:-}"
+export WORKSPACE_REMOTE_ROOT="${WORKSPACE_REMOTE_ROOT:-}" # mirrored remote codebase (disk mount path)
+export WORKSPACE_REMOTE_VENV="${WORKSPACE_REMOTE_VENV:-}"
 export WORKSPACE_SYNC_EXCLUDE="${WORKSPACE_SYNC_EXCLUDE:-}"
 
 # kubectl

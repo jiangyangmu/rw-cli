@@ -3,6 +3,16 @@ import math
 import os
 import string
 
+_USER_DISK_VOLUMN_MOUNT = """
+              - mountPath: "${USER_DISK_MOUNT_PATH}"
+                name: user-disk
+"""
+_USER_DISK_VOLUMN = """
+            - name: user-disk
+              persistentVolumeClaim:
+                claimName: ${USER_PVC_NAME}
+"""
+
 def main():
   parser = argparse.ArgumentParser()
 
@@ -42,6 +52,15 @@ def main():
   else:
     raise ValueError(f"Unsupported TPU type {tpu_type}")
 
+  if args.user_pvc_name and args.user_disk_mount_path:
+    user_disk_volumn = string.Template(_USER_DISK_VOLUMN).substitute(
+      USER_PVC_NAME=args.user_pvc_name)[:-1]
+    user_disk_volumn_mount = string.Template(_USER_DISK_VOLUMN_MOUNT).substitute(
+      USER_DISK_MOUNT_PATH=args.user_disk_mount_path)[:-1]
+  else:
+    user_disk_volumn = ""
+    user_disk_volumn_mount = ""
+
   with open(args.template_file, "r") as f:
     template = string.Template(f.read())
     content = template.substitute(
@@ -59,8 +78,8 @@ def main():
         PODSET_SLICE_SIZE=slice_size,
         USER_CONTAINER=args.user_container,
         USER_CONTAINER_IMAGE=args.user_container_image,
-        USER_PVC_NAME=args.user_pvc_name,
-        USER_DISK_MOUNT_PATH=args.user_disk_mount_path,
+        USER_DISK_VOLUMN=user_disk_volumn,
+        USER_DISK_VOLUMN_MOUNT=user_disk_volumn_mount,
     )
     print(content)
 

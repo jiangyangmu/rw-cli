@@ -81,9 +81,7 @@ spec:
                 limits:
                   cpu: "24"
                   memory: 100G
-              volumeMounts:
-              - mountPath: "${USER_DISK_MOUNT_PATH}"
-                name: user-disk
+              volumeMounts: ${USER_DISK_VOLUMN_MOUNT}
               command:
                 - bash
                 - -c
@@ -128,14 +126,11 @@ spec:
               - containerPort: 29000
                 protocol: TCP
             terminationGracePeriodSeconds: 10
-            volumes:
+            volumes: ${USER_DISK_VOLUMN}
             - name: shared-tmp
               hostPath:
                 path: /tmp
                 type: DirectoryOrCreate
-            - name: user-disk
-              persistentVolumeClaim:
-                claimName: ${USER_PVC_NAME}
   - name: worker
     replicas: ${REPLICAS}
     template:

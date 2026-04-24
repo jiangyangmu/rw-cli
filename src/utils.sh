@@ -176,18 +176,6 @@ _register_disk() {
   local workspace_disk_size=$4
   local jobset_namespace=$5
 
-  # delete pvc if namespace not match
-  for ns in $(kubectl get pvc --all-namespaces 2>/dev/null | grep "$workspace_disk_pvc_name" | grep -v "$jobset_namespace" | awk '{print $1}'); do
-    echo "deleting existing pvc '$workspace_disk_pvc_name' in namespace '$ns'"
-    kubectl delete pvc "$workspace_disk_pvc_name" -n "$ns"
-  done
-  # delete pv if claim not match
-  for claim in $(kubectl get pv --all-namespaces 2>/dev/null | grep "$workspace_disk_pv_name" | grep -v "$jobset_namespace/$workspace_disk_pvc_name" | awk '{print $6}'); do
-    echo "deleting existing pv '$workspace_disk_pv_name' with claim '$claim'"
-    kubectl patch pv "$workspace_disk_pv_name" -p '{"metadata":{"finalizers":null}}' --type=merge &>/dev/null
-    kubectl delete pv "$workspace_disk_pv_name"
-  done
-
   if ! kubectl get pv "$workspace_disk_pv_name" &>/dev/null; then
     _generate_pv_yaml "$workspace_disk_pv_name" "$workspace_disk_csi_handle" "$workspace_disk_size" | kubectl apply -f - \
     && { echo "added pv '$workspace_disk_pv_name'"; } \
@@ -218,6 +206,18 @@ _unregister_disk() {
     return 1
   fi
 
+  # delete pvc if namespace not match
+  for ns in $(kubectl get pvc --all-namespaces 2>/dev/null | grep "$workspace_disk_pvc_name" | grep -v "$jobset_namespace" | awk '{print $1}'); do
+    echo "deleting existing pvc '$workspace_disk_pvc_name' in namespace '$ns'"
+    kubectl delete pvc "$workspace_disk_pvc_name" -n "$ns"
+  done
+  # delete pv if claim not match
+  for claim in $(kubectl get pv --all-namespaces 2>/dev/null | grep "$workspace_disk_pv_name" | grep -v "$jobset_namespace/$workspace_disk_pvc_name" | awk '{print $6}'); do
+    echo "deleting existing pv '$workspace_disk_pv_name' with claim '$claim'"
+    kubectl patch pv "$workspace_disk_pv_name" -p '{"metadata":{"finalizers":null}}' --type=merge &>/dev/null
+    kubectl delete pv "$workspace_disk_pv_name"
+  done
+
   if kubectl get pvc "$workspace_disk_pvc_name" &>/dev/null; then
     _generate_pvc_yaml "$workspace_disk_pvc_name" "$workspace_disk_size" "$workspace_disk_pv_name" | kubectl delete -f - --timeout=10s \
     && { echo "unregistered $workspace_disk_pvc_name"; } \
@@ -228,7 +228,6 @@ _unregister_disk() {
 
   if kubectl get pv "$workspace_disk_pv_name" &>/dev/null; then
     kubectl patch pv "$workspace_disk_pv_name" -p '{"metadata":{"finalizers":null}}' --type=merge &>/dev/null
-
     _generate_pv_yaml "$workspace_disk_pv_name" "$workspace_disk_csi_handle" "$workspace_disk_size" | kubectl delete -f - --timeout=10s \
     && { echo "unregistered $workspace_disk_pv_name"; } \
     || { echo "failed to unregister $workspace_disk_pv_name"; return 1; }
