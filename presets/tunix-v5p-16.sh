@@ -15,7 +15,7 @@ export CLUSTER="tunix-v5p-16"
 export JOBSET_TPU_TYPE="tpuv5"
 export JOBSET_TPU_TOPO="2x2x2"
 
-export JOBSET_NAME="${USER}-ds"
+export JOBSET_NAME="${USER%_google_com}-ds"
 export JOBSET_NAMESPACE="default"
 
 ## container images
@@ -31,11 +31,12 @@ export IMAGE_WORKSPACE="us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu
 ## remote workspace
 
 export WORKSPACE_CONTAINER="workspace-main"
+export WORKSPACE_USER="${USER%_google_com}"
 
 export WORKSPACE_JOBSET_TMPL="yamls/jobset-${JOBSET_TPU_TYPE}-tmpl.$CLUSTER.yaml"
 
 # disk settings
-export WORKSPACE_DISK_NAME="$USER-workspace-disk"
+export WORKSPACE_DISK_NAME="${WORKSPACE_USER}-workspace-disk"
 export WORKSPACE_DISK_SIZE="512Gi"
 export WORKSPACE_DISK_ZONE=$ZONE
 
@@ -59,8 +60,8 @@ else
 fi
 
 export WORKSPACE_DISK_CSI_HANDLE="projects/$PROJECT/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME"
-export WORKSPACE_DISK_PV_NAME="${USER}-pv"
-export WORKSPACE_DISK_PVC_NAME="${USER}-pvc"
+export WORKSPACE_DISK_PV_NAME="${WORKSPACE_USER}-pv"
+export WORKSPACE_DISK_PVC_NAME="${WORKSPACE_USER}-pvc"
 
 # sync settings (set by profiles/$UER.sh)
 export WORKSPACE_LOCAL_ROOT="${WORKSPACE_LOCAL_ROOT:-}" # your local codebase

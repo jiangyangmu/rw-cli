@@ -89,6 +89,7 @@ export IMAGE_WORKSPACE="${IMAGE_WORKSPACE:-}"
 ## remote workspace
 
 export WORKSPACE_CONTAINER="${WORKSPACE_CONTAINER:-}"
+export WORKSPACE_USER="${WORKSPACE_USER:-}"
 
 export WORKSPACE_JOBSET_TMPL="${WORKSPACE_JOBSET_TMPL:-}"
 
@@ -207,8 +208,8 @@ if [ -z "$1" ]; then
   echo "tpu:       ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
   echo "tmpl:      ${WORKSPACE_JOBSET_TMPL}"
   echo "disk:      ${WORKSPACE_DISK_CSI_HANDLE}"
-  echo "local:     ${WORKSPACE_LOCAL_ROOT}"
-  echo "remote:    ${WORKSPACE_REMOTE_ROOT}"
+  echo "local:     ${USER}:${WORKSPACE_LOCAL_ROOT}"
+  echo "remote:    ${WORKSPACE_USER}:${WORKSPACE_REMOTE_ROOT}"
   echo "ignore:    ${WORKSPACE_SYNC_EXCLUDE}"
   echo
 else
@@ -349,12 +350,12 @@ while true; do
       continue
     fi
 
-    echo "[root] add user $USER to $HEAD_POD"
-    kubectl exec -i "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/bash -s "$USER" < "${SCRIPT_ROOT}/scripts/add_user.sh" || continue
-    echo "[$USER] init user home on $HEAD_POD"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export DISK_MOUNT_PATH=${WORKSPACE_REMOTE_ROOT}; bash -s" < "${SCRIPT_ROOT}/scripts/init_home.sh" || continue
-    echo "[$USER] init venv on $HEAD_POD"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "$USER" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; export VENV_PATH=${WORKSPACE_REMOTE_VENV}; bash -s" < "${SCRIPT_ROOT}/scripts/init_venv.sh"
+    echo "[root] add user ${WORKSPACE_USER} to $HEAD_POD"
+    kubectl exec -i "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/bash -s "${WORKSPACE_USER}" < "${SCRIPT_ROOT}/scripts/add_user.sh" || continue
+    echo "[${WORKSPACE_USER}] init user home on $HEAD_POD"
+    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "${WORKSPACE_USER}" -c "export DISK_MOUNT_PATH=${WORKSPACE_REMOTE_ROOT}; bash -s" < "${SCRIPT_ROOT}/scripts/init_home.sh" || continue
+    echo "[${WORKSPACE_USER}] init venv on $HEAD_POD"
+    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "${WORKSPACE_USER}" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; export VENV_PATH=${WORKSPACE_REMOTE_VENV}; bash -s" < "${SCRIPT_ROOT}/scripts/init_venv.sh"
     ;;
   ssh-root)
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
@@ -364,7 +365,7 @@ while true; do
   ssh)
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
     echo "ssh to $HEAD_POD"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "$USER"
+    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "${WORKSPACE_USER}"
     ;;
   ssh-run)
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
@@ -375,7 +376,7 @@ while true; do
       read -e -p "Command to run: " run_cmd
     fi
     echo "running '$run_cmd' on $HEAD_POD"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "$USER" -c "source ~/.zshrc 2>/dev/null; $run_cmd"
+    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "${WORKSPACE_USER}" -c "source ~/.zshrc 2>/dev/null; $run_cmd"
     ;;
   ssh-worker)
     WORKER_POD=$(kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" | grep worker | head -n 1 | awk '{print $1}')
