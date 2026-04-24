@@ -55,7 +55,7 @@
 #     debug-labels    - Compare JobSet nodeSelectors with node and flavor labels
 #
 #   [Cleanup]
-#     disk-cleanup    - Remove all disk resources. Make sure the server is down before run this
+#     disk-cleanup    - Remove all disk resources.
 #     disk-register   - On-demand. Register the persistent disk (PV and PVC)
 #     disk-unregister - On-demand. Unregister the persistent disk (PV and PVC)
 #
@@ -217,17 +217,68 @@ generate_pvc_yaml() {
     --user_pv_name="${WORKSPACE_DISK_PV_NAME}"
 }
 
-# auto register disk
-if ! kubectl get pv 2>/dev/null | grep -q "$WORKSPACE_DISK_PV_NAME"; then
-  generate_pv_yaml | kubectl apply -f - || { echo "failed to register $WORKSPACE_DISK_PV_NAME"; exit 1; }
-fi
-if ! kubectl get pvc 2>/dev/null | grep -q "$WORKSPACE_DISK_PVC_NAME"; then
-  for namespace in $(kubectl get pvc 2>/dev/null | grep "$WORKSPACE_DISK_PVC_NAME" | awk '{print $1}'); do
+register_disk() {
+  # delete pvc if namespace not match
+  for namespace in $(kubectl get pvc --all-namespaces 2>/dev/null | grep "$WORKSPACE_DISK_PVC_NAME" | grep -v "$JOBSET_NAMESPACE" | awk '{print $1}'); do
     echo "deleting existing pvc '$WORKSPACE_DISK_PVC_NAME' in namespace '$namespace'"
     kubectl delete pvc "$WORKSPACE_DISK_PVC_NAME" -n "$namespace"
   done
-  generate_pvc_yaml | kubectl apply -f - || { echo "failed to register $WORKSPACE_DISK_PVC_NAME"; exit 1; }
-fi
+  # delete pv if claim not match
+  for claim in $(kubectl get pv --all-namespaces 2>/dev/null | grep "$WORKSPACE_DISK_PV_NAME" | grep -v "$JOBSET_NAMESPACE/$WORKSPACE_DISK_PVC_NAME" | awk '{print $6}'); do
+    echo "deleting existing pv '$WORKSPACE_DISK_PV_NAME' with claim '$claim'"
+    kubectl patch pv "$WORKSPACE_DISK_PV_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge &>/dev/null
+    kubectl delete pv "$WORKSPACE_DISK_PV_NAME"
+  done
+
+  if ! kubectl get pv "$WORKSPACE_DISK_PV_NAME" &>/dev/null; then
+    generate_pv_yaml | kubectl apply -f - \
+    && { echo "added pv '$WORKSPACE_DISK_PV_NAME'"; } \
+    || { echo "failed to register $WORKSPACE_DISK_PV_NAME"; return 1; }
+  else
+    echo "found pv '$WORKSPACE_DISK_PV_NAME'"
+  fi
+  if ! kubectl get pvc "$WORKSPACE_DISK_PVC_NAME" &>/dev/null; then
+    generate_pvc_yaml | kubectl apply -f - \
+    && { echo "added pvc '$WORKSPACE_DISK_PVC_NAME' in namespace '$JOBSET_NAMESPACE'"; } \
+    || { echo "failed to register $WORKSPACE_DISK_PVC_NAME"; return 1; }
+  else
+    echo "found pvc '$WORKSPACE_DISK_PVC_NAME'"
+  fi
+
+  return 0
+}
+
+unregister_disk() {
+  if kubectl get jobset "$JOBSET_NAME" &>/dev/null; then
+    echo "Error: JobSet '$JOBSET_NAME' is still running. Please run 'server-stop' first."
+    return 1
+  fi
+
+  if kubectl get pvc "$WORKSPACE_DISK_PVC_NAME" &>/dev/null; then
+    # kubectl patch pvc "$WORKSPACE_DISK_PVC_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge
+
+    generate_pvc_yaml | kubectl delete -f - --timeout=10s \
+    && { echo "unregistered $WORKSPACE_DISK_PVC_NAME"; } \
+    || { echo "failed to unregister $WORKSPACE_DISK_PVC_NAME"; return 1; }
+  else
+    echo "pvc '$WORKSPACE_DISK_PVC_NAME' already deleted"
+  fi
+
+  if kubectl get pv "$WORKSPACE_DISK_PV_NAME" &>/dev/null; then
+    kubectl patch pv "$WORKSPACE_DISK_PV_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge &>/dev/null
+
+    generate_pv_yaml | kubectl delete -f - --timeout=10s \
+    && { echo "unregistered $WORKSPACE_DISK_PV_NAME"; } \
+    || { echo "failed to unregister $WORKSPACE_DISK_PV_NAME"; return 1; }
+  else
+    echo "pv '$WORKSPACE_DISK_PV_NAME' already deleted"
+  fi
+
+  return 0
+}
+
+# auto register disk
+register_disk || exit 1
 
 # detect run mode
 if [ -z "$1" ]; then
@@ -310,7 +361,7 @@ while true; do
     if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
       error_regex="FailedCreateSlice|couldn't assign flavors|doesn't exist"
 
-      until kubectl describe workload "$WORKLOAD" | egrep -q "SlicesCreated|$error_regex"; do
+      until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "SlicesCreated|$error_regex" || [[ $? -gt 128 ]]; do
         echo -n "."; sleep 1
       done
       if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
@@ -320,7 +371,7 @@ while true; do
       kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
       kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
 
-      until kubectl describe workload "$WORKLOAD" | egrep -q "Admitted by|$error_regex"; do
+      until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "Admitted by|$error_regex" || [[ $? -gt 128 ]]; do
         echo -n "."; sleep 1
       done
       if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
@@ -330,7 +381,7 @@ while true; do
     else
       error_regex="FailedCreateSlice|EvictedDueToAdmissionCheck|couldn't assign flavors|doesn't exist"
 
-      until kubectl describe workload "$WORKLOAD" | egrep -q "Admitted by|$error_regex"; do
+      until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "Admitted by|$error_regex" || [[ $? -gt 128 ]]; do
         echo -n "."; sleep 1
       done
       if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
@@ -509,46 +560,21 @@ while true; do
     kubectl get jobset "$JOBSET_NAME" -o yaml
     ;;
   disk-register)
-    if kubectl get pv | grep -q "$WORKSPACE_DISK_PV_NAME"; then echo "$WORKSPACE_DISK_PV_NAME already registered"; else
-      generate_pv_yaml | kubectl apply -f - && echo "registered $WORKSPACE_DISK_PV_NAME" || continue
-    fi
-    if kubectl get pvc | grep -q "$WORKSPACE_DISK_PVC_NAME"; then echo "$WORKSPACE_DISK_PVC_NAME already registered"; else
-      generate_pvc_yaml | kubectl apply -f - && echo "registered $WORKSPACE_DISK_PVC_NAME"
-    fi
+    register_disk
     ;;
   disk-unregister)
-    generate_pvc_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PVC_NAME"
-    # if pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$WORKSPACE_DISK_PVC_NAME/details?project=$PROJECT
-    # manually remove finalizer content. (be cautious, make sure you know what you are doing)
-    echo "If pv delete fails (stuck), goto https://pantheon.corp.google.com/kubernetes/persistentvolume/$REGION/$CLUSTER/$WORKSPACE_DISK_PVC_NAME/details?project=$PROJECT"
-    generate_pv_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PV_NAME"
+    unregister_disk
     ;;
   disk-cleanup)
-    if kubectl get jobset "$JOBSET_NAME" &>/dev/null; then
-      echo "Error: JobSet '$JOBSET_NAME' is still running. Please run 'server-stop' first."
-      continue
-    fi
     echo -n "This will delete all disk resources ($WORKSPACE_DISK_PVC_NAME, $WORKSPACE_DISK_PV_NAME, and the GCE disk $WORKSPACE_DISK_NAME). Are you sure? (y/n) "
     read -r REPLY
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
       echo "Aborted."
       continue
     fi
-
-    generate_pvc_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PVC_NAME" # -f - --timeout=30s
-    generate_pv_yaml | kubectl delete -f - && echo "unregistered $WORKSPACE_DISK_PV_NAME" # -f - --timeout=30s
+    unregister_disk
 
     gcloud compute disks delete "$WORKSPACE_DISK_NAME" --zone="$WORKSPACE_DISK_ZONE" --project="$PROJECT" --quiet && echo "deleted gcloud disk $DISK_NAME"
-
-    # if kubectl get pvc "$WORKSPACE_DISK_PVC_NAME" &>/dev/null; then
-    #   echo "Forcefully removing finalizers from PVC $WORKSPACE_DISK_PVC_NAME..."
-    #   kubectl patch pvc "$WORKSPACE_DISK_PVC_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge
-    # fi
-
-    # if kubectl get pv "$WORKSPACE_DISK_PV_NAME" &>/dev/null; then
-    #   echo "Forcefully removing finalizers from PV $WORKSPACE_DISK_PV_NAME..."
-    #   kubectl patch pv "$WORKSPACE_DISK_PV_NAME" -p '{"metadata":{"finalizers":null}}' --type=merge
-    # fi
     ;;
   proxy-list)
     kubectl get pods | egrep "^isc-(proxy-$USER|${JOBSET_NAME})"
@@ -628,7 +654,7 @@ while true; do
     echo "evts: https://console.cloud.google.com/kubernetes/pod/$REGION/$CLUSTER/$JOBSET_NAMESPACE/$HEAD_POD/events?project=$PROJECT"
     echo "disk: https://pantheon.corp.google.com/compute/disksDetail/zones/$WORKSPACE_DISK_ZONE/disks/$WORKSPACE_DISK_NAME?project=$PROJECT"
     ;;
-  quit)
+  quit|exit)
     exit 0
     ;;
   *)
