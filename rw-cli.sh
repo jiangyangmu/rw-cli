@@ -319,43 +319,46 @@ while true; do
 
     generate_jobset_yaml | kubectl apply -f - && echo "applied $JOBSET_NAME"
 
-    until WORKLOAD=$(kubectl get workloads | grep "$JOBSET_NAME" | awk '{print $1}') && [ -n "$WORKLOAD" ]; do
-      echo -n "."; sleep 1
-    done
-    echo
-
-    if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
-      error_regex="FailedCreateSlice|couldn't assign flavors|doesn't exist"
-
-      until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "SlicesCreated|$error_regex" || [[ $? -gt 128 ]]; do
+    # run in a subshell to allow ctrl-c interrupt
+    (
+      until WORKLOAD=$(kubectl get workloads | grep "$JOBSET_NAME" | awk '{print $1}') && [ -n "$WORKLOAD" ]; do
         echo -n "."; sleep 1
       done
-      if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
-        kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
-      fi
-      echo "SlicesCreated"
+      echo
 
-      kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
-      kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
+      if [[ "$CLUSTER" == "bodaborg-super-alpha-cluster" ]]; then
+        error_regex="FailedCreateSlice|couldn't assign flavors|doesn't exist"
 
-      until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "Admitted by|$error_regex" || [[ $? -gt 128 ]]; do
-        echo -n "."; sleep 1
-      done
-      if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
-        kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
-      fi
-      echo "Admitted"
-    else
-      error_regex="FailedCreateSlice|EvictedDueToAdmissionCheck|couldn't assign flavors|doesn't exist"
+        until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "SlicesCreated|$error_regex"; do
+          echo -n "."; sleep 1
+        done
+        if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
+          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+        fi
+        echo "SlicesCreated"
 
-      until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "Admitted by|$error_regex" || [[ $? -gt 128 ]]; do
-        echo -n "."; sleep 1
-      done
-      if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
-        kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+        kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
+        kubectl patch job $JOBSET_NAME-worker-0 -p '{"spec":{"suspend":false}}' --type=merge
+
+        until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "Admitted by|$error_regex"; do
+          echo -n "."; sleep 1
+        done
+        if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
+          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+        fi
+        echo "Admitted"
+      else
+        error_regex="FailedCreateSlice|EvictedDueToAdmissionCheck|couldn't assign flavors|doesn't exist"
+
+        until kubectl describe workload "$WORKLOAD" 2>/dev/null | egrep -q "Admitted by|$error_regex"; do
+          echo -n "."; sleep 1
+        done
+        if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
+          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+        fi
+        echo "Admitted"
       fi
-      echo "Admitted"
-    fi
+    )
     ;;
   server-resume)
     kubectl patch job $JOBSET_NAME-pathways-head-0 -p '{"spec":{"suspend":false}}' --type=merge
@@ -364,12 +367,15 @@ while true; do
   server-stop)
     generate_jobset_yaml | kubectl delete -f - && echo "deleted $JOBSET_NAME" || continue
 
-    while true; do
-      kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" 2>&1 | grep -q "No resources found" && break
-      echo -n "."
-      sleep 1
-    done
-    echo "Terminated"
+    # run in a subshell to allow ctrl-c interrupt
+    (
+      while true; do
+        kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME" 2>&1 | grep -q "No resources found" && break
+        echo -n "."
+        sleep 1
+      done
+      echo "Terminated"
+    )
     ;;
   server-wait)
     verify_pods_running ${JOBSET_NAME} && echo "pods are running" || echo "pods are not running"
@@ -587,8 +593,9 @@ while true; do
   debug-labels)
     # Try to find a node name automatically
     node_name=$(kubectl get nodes | grep gke-tpu- | head -n 1 | awk '{print $1}')
-    read -e -p "Node name [$node_name]: " input_node
-    node_name="${input_node:-$node_name}"
+    echo "Node name: $node_name"
+    # read -e -p "Node name [$node_name]: " input_node
+    # node_name="${input_node:-$node_name}"
 
     # List and pick flavor
     echo "Available Resource Flavors:"
@@ -622,15 +629,19 @@ while true; do
     FORWARD_PORT="${FORWARD_PORT:-8888}"
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     echo "Starting auto port-forward for $HEAD_POD on port $FORWARD_PORT..."
-    while true; do
-      if ! ps aux | grep "kubectl port-forward" | grep "$FORWARD_PORT:$FORWARD_PORT" | grep -v grep > /dev/null; then
-        echo "$(date): Starting port-forward..."
-        kubectl port-forward "$HEAD_POD" "$FORWARD_PORT:$FORWARD_PORT" >/dev/null 2>&1 &
-      fi
-      sleep 5
-      # Check if the pod still exists; if not, exit the loop
-      kubectl get pod "$HEAD_POD" >/dev/null 2>&1 || { echo "Pod $HEAD_POD no longer exists. Stopping auto-forward."; break; }
-    done
+
+    # run in a subshell to allow ctrl-c interrupt
+    (
+      while true; do
+        if ! ps aux | grep "kubectl port-forward" | grep "$FORWARD_PORT:$FORWARD_PORT" | grep -v grep > /dev/null; then
+          echo "$(date): Starting port-forward..."
+          kubectl port-forward "$HEAD_POD" "$FORWARD_PORT:$FORWARD_PORT" >/dev/null 2>&1 &
+        fi
+        sleep 5
+        # Check if the pod still exists; if not, exit the loop
+        kubectl get pod "$HEAD_POD" >/dev/null 2>&1 || { echo "Pod $HEAD_POD no longer exists. Stopping auto-forward."; break; }
+      done
+    )
     ;;
   port-forward-kill)
     if ps aux | grep "kubectl port-forward" | grep -q -v grep; then
