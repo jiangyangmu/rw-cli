@@ -375,6 +375,7 @@ while true; do
     verify_pods_running ${JOBSET_NAME} && echo "pods are running" || echo "pods are not running"
     ;;
   head-restart)
+    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     kubectl exec -it "$HEAD_POD" -c pathways-rm -- /bin/sh -c "kill 1"
     kubectl exec -it "$HEAD_POD" -c pathways-proxy -- /bin/sh -c "kill 1"
     ;;
@@ -449,6 +450,10 @@ while true; do
   bootstrap)
     if [[ -z "$WORKSPACE_DISK_NAME" ]]; then
       echo "error: 'bootstrap' requires disk."
+      continue
+    fi
+    if kubectl get jobset "$JOBSET_NAME" &>/dev/null; then
+      echo "error: jobset '$JOBSET_NAME' is running. please run 'server-stop' first."
       continue
     fi
     ACTIONS=("server-start" "disk-init" "ssh-init" "${ACTIONS[@]}")
