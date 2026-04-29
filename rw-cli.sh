@@ -1,7 +1,11 @@
 #!/bin/bash
 #
 # Usage:
-#   source presets/<cluster>.sh; ./rw-cli.sh [command1] [command2] ...
+#   ./rw-cli.sh [command1] [command2] ...
+#
+#   If JOBSET_NAME is not set, it will prompt to select a preset.
+#   Selections are remembered per terminal session.
+#   To override, manually source a preset: source presets/<cluster>.sh
 #
 # Interactive Mode:
 #   If no commands are provided, the script runs in interactive mode.
@@ -10,8 +14,9 @@
 #
 #   [Setup & Auth]
 #     bootstrap       - One-step setup: server-start, disk-init, and ssh-init
-#     disk-init       - After disk creation. One-time sync from local to remote workspace
-#     ssh-init        - After server start. Initialize the remote workspace (add user, home, venv)
+#     disk-init       - Run once after disk creation, initial sync from local workspace root to remote workspace root
+#     ssh-init        - Run once after server start or restart, initialize the remote workspace (add user, home, venv)
+#                       Skip this if using `root` account is fine for you (in this case, use `ssh-root`).
 #
 #   [Lifecycle]
 #     server-start    - Generate JobSet YAML, apply it, and start the server
@@ -24,9 +29,11 @@
 #   [Development]
 #     ssh             - SSH to the head node as the current user
 #     ssh-run         - Run a command on the head node as the current user
+#     ssh-worker      - SSH to one of the worker nodes
 #     ssh-root        - SSH to the head node as root
 #     sync            - Start continuous sync from local to remote workspace
-#     port-forward    - Start port forwarding to the head node (default port: 8888)
+#     port-forward    - Start port forwarding to the head node (default port: 8888, change via FORWARD_PORT)
+#     port-forward-auto - Start auto-reconnecting port forwarding (change via FORWARD_PORT)
 #     port-forward-kill - Stop port forwarding
 #
 #   [Inspection]
@@ -35,6 +42,7 @@
 #     list-pods       - List pods for the current JobSet
 #     list-nodes      - List TPU nodes with specific topology labels
 #     list-queues     - List Kueue queues
+#     list-queues-all - List all cluster queues with TPU resources
 #     log-head        - Show logs for the head node
 #     log-worker      - Show logs for one of the worker nodes
 #     desc-jobset     - Describe the current JobSet
@@ -48,7 +56,7 @@
 #
 #   [Troubleshooting]
 #     head-restart    - Restart the head node
-#     worker-restart  - Restart one of the worker nodes
+#     worker-restart  - Restart all the worker nodes
 #     proxy-list      - List proxy pods
 #     proxy-kill      - Delete proxy pods
 #     debug-ports     - List pods with hostPorts (defaults to 29000)
