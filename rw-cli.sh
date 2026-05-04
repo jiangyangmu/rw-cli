@@ -404,28 +404,42 @@ while true; do
       continue
     fi
 
-    echo -n "wait for head node ready"
-    for i in {0..120}; do
-      verify_head_running ${JOBSET_NAME} && { echo; break; }
-      echo -n "."
-      sleep 1
-    done
-    verify_head_running ${JOBSET_NAME} || { echo "error: head node not ready"; continue; }
+    # run in a subshell to allow ctrl-c interrupt
+    (
+      echo -n "wait for head node ready"
+      for i in {0..120}; do
+        verify_head_running ${JOBSET_NAME} && { echo; break; }
+        echo -n "."
+        sleep 1
+      done
+      verify_head_running ${JOBSET_NAME} || { echo "error: head node not ready"; continue; }
 
-    HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
-    if kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/sh -c "! [ -d '${WORKSPACE_REMOTE_ROOT}/rw-cli/' ]" 2>/dev/null; then
-      echo "error: rw-cli not found on remote workspace disk, please run 'disk-init' to do initial sync."
-      continue
-    fi
+      HEAD_POD=$(get_head_pod_name ${JOBSET_NAME})
+      if kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/sh -c "! [ -d '${WORKSPACE_REMOTE_ROOT}/rw-cli/' ]" 2>/dev/null; then
+        echo "error: rw-cli not found on remote workspace disk, please run 'disk-init' to do initial sync."
+        continue
+      fi
 
-    echo "[root] add user ${WORKSPACE_USER} to $HEAD_POD"
-    kubectl exec -i "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/bash -s "${WORKSPACE_USER}" < "${SCRIPT_ROOT}/scripts/add_user.sh" || continue
-    echo "[${WORKSPACE_USER}] init user home on $HEAD_POD"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "${WORKSPACE_USER}" -c "export DISK_MOUNT_PATH=${WORKSPACE_REMOTE_ROOT}; bash -s" < "${SCRIPT_ROOT}/scripts/init_home.sh" || continue
-    echo "[${WORKSPACE_USER}] init venv on $HEAD_POD"
-    kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "${WORKSPACE_USER}" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; export VENV_PATH=${WORKSPACE_REMOTE_VENV}; bash -s" < "${SCRIPT_ROOT}/scripts/init_venv.sh"
+      echo "[root] add user ${WORKSPACE_USER} to $HEAD_POD"
+      kubectl exec -i "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/bash -s "${WORKSPACE_USER}" < "${SCRIPT_ROOT}/scripts/add_user.sh" || continue
+      echo "[${WORKSPACE_USER}] init user home on $HEAD_POD"
+      kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "${WORKSPACE_USER}" -c "export DISK_MOUNT_PATH=${WORKSPACE_REMOTE_ROOT}; bash -s" < "${SCRIPT_ROOT}/scripts/init_home.sh" || continue
+      echo "[${WORKSPACE_USER}] init venv on $HEAD_POD"
+      kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /bin/bash -l "${WORKSPACE_USER}" -c "export GITHUB_ROOT=${WORKSPACE_REMOTE_ROOT}; export VENV_PATH=${WORKSPACE_REMOTE_VENV}; bash -s" < "${SCRIPT_ROOT}/scripts/init_venv.sh"
+    )
     ;;
   ssh-root)
+    # run in a subshell to allow ctrl-c interrupt
+    (
+      echo -n "wait for head node ready"
+      for i in {0..120}; do
+        verify_head_running ${JOBSET_NAME} && { echo; break; }
+        echo -n "."
+        sleep 1
+      done
+      verify_head_running ${JOBSET_NAME} || { echo "error: head node not ready"; continue; }
+    )
+
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     echo "ssh to $HEAD_POD as root"
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- /bin/bash
@@ -436,6 +450,17 @@ while true; do
       continue
     fi
 
+    # run in a subshell to allow ctrl-c interrupt
+    (
+      echo -n "wait for head node ready"
+      for i in {0..120}; do
+        verify_head_running ${JOBSET_NAME} && { echo; break; }
+        echo -n "."
+        sleep 1
+      done
+      verify_head_running ${JOBSET_NAME} || { echo "error: head node not ready"; continue; }
+    )
+
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     echo "ssh to $HEAD_POD as ${WORKSPACE_USER}"
     kubectl exec -it "$HEAD_POD" -c "$WORKSPACE_CONTAINER" -- su -s /usr/bin/zsh -l "${WORKSPACE_USER}"
@@ -445,6 +470,17 @@ while true; do
       echo "error: 'ssh-run' requires disk, you can still use 'ssh-root'."
       continue
     fi
+
+    # run in a subshell to allow ctrl-c interrupt
+    (
+      echo -n "wait for head node ready"
+      for i in {0..120}; do
+        verify_head_running ${JOBSET_NAME} && { echo; break; }
+        echo -n "."
+        sleep 1
+      done
+      verify_head_running ${JOBSET_NAME} || { echo "error: head node not ready"; continue; }
+    )
 
     HEAD_POD=$(get_head_pod_name ${JOBSET_NAME}); [[ -z "$HEAD_POD" ]] && { echo "error: jobset '$JOBSET_NAME' is not running. please run 'server-start' first."; continue; }
     if [ ${#ACTIONS[@]} -gt 0 ]; then
