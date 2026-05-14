@@ -21,6 +21,7 @@
 #   [Lifecycle]
 #     server-start    - Generate JobSet YAML, apply it, and start the server
 #     server-stop     - Delete the JobSet and wait for termination
+#     server-restart  - Restart the server (stop then start)
 #     server-resume   - Resume a suspended server
 #     server-wait     - Wait for pods to be in running state
 #     server-yaml     - Generate and save JobSet YAML to a file
@@ -384,6 +385,9 @@ while true; do
       done
       echo "Terminated"
     )
+    ;;
+  server-restart)
+    ACTIONS=("server-stop" "server-start" "${ACTIONS[@]}")
     ;;
   server-wait)
     verify_pods_running ${JOBSET_NAME} && echo "pods are running" || echo "pods are not running"
