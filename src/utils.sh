@@ -1,6 +1,6 @@
 get_head_pod_name() {
   local jobset_name=$1
-  kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$jobset_name" | grep pathways-head | head -n 1 | awk '{print $1}'
+  kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name="$jobset_name" | egrep 'head|proc' | head -n 1 | awk '{print $1}'
 }
 
 get_worker_pod_name() {
@@ -40,7 +40,7 @@ verify_head_running() {
   local jobset_name=$1
 
   # Check Head Pod
-  local head_pod=$(kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name=${jobset_name} -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | tr ' ' '\n' | grep 'head' || true)
+  local head_pod=$(kubectl get pods --selector=jobset.sigs.k8s.io/jobset-name=${jobset_name} -o jsonpath='{.items[?(@.status.phase=="Running")].metadata.name}' | tr ' ' '\n' | egrep 'head|proc' || true)
   if [[ -z "$head_pod" ]]; then
     return 1
   fi
@@ -122,14 +122,15 @@ debug_labels() {
 _generate_jobset_yaml() {
   local workspace_jobset_tmpl=$1
   local jobset_name=$2
-  local jobset_tpu_type=$3
-  local jobset_tpu_topo=$4
-  local image_pathways_server=$5
-  local image_pathways_proxy_server=$6
-  local workspace_container=$7
-  local image_workspace=$8
-  local workspace_disk_pvc_name=$9
-  local workspace_remote_root=${10}
+  local jobset_cpu_machine=$3
+  local jobset_tpu_type=$4
+  local jobset_tpu_topo=$5
+  local image_pathways_server=$6
+  local image_pathways_proxy_server=$7
+  local workspace_container=$8
+  local image_workspace=$9
+  local workspace_disk_pvc_name=${10}
+  local workspace_remote_root=${11}
 
   local tmpl_flags=""
   tmpl_flags+=" --user_container=${workspace_container}"
@@ -141,6 +142,7 @@ _generate_jobset_yaml() {
     --jobset_name="$jobset_name" \
     --server_image="$image_pathways_server" \
     --proxy_image="$image_pathways_proxy_server" \
+    --cpu_machine="$jobset_cpu_machine" \
     --tpu_type="$jobset_tpu_type:$jobset_tpu_topo" \
     $tmpl_flags
 }
@@ -180,15 +182,11 @@ _register_disk() {
     _generate_pv_yaml "$workspace_disk_pv_name" "$workspace_disk_csi_handle" "$workspace_disk_size" | kubectl apply -f - \
     && { echo "added pv '$workspace_disk_pv_name'"; } \
     || { echo "failed to register $workspace_disk_pv_name"; return 1; }
-  else
-    echo "found pv '$workspace_disk_pv_name'"
   fi
   if ! kubectl get pvc "$workspace_disk_pvc_name" &>/dev/null; then
     _generate_pvc_yaml "$workspace_disk_pvc_name" "$workspace_disk_size" "$workspace_disk_pv_name" | kubectl apply -f - \
     && { echo "added pvc '$workspace_disk_pvc_name' in namespace '$jobset_namespace'"; } \
     || { echo "failed to register $workspace_disk_pvc_name"; return 1; }
-  else
-    echo "found pvc '$workspace_disk_pvc_name'"
   fi
 
   return 0

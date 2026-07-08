@@ -1,0 +1,60 @@
+apiVersion: pathways-job.pathways.domain/v1
+kind: PathwaysJob
+
+# https://docs.cloud.google.com/ai-hypercomputer/docs/workloads/pathways-on-cloud/pathways-intro#pathwaysjob_api
+
+metadata:
+  name: ${JOBSET_NAME}
+  namespace: default
+
+spec:
+  pathwaysDir: "${GCS_SCRATCH_LOCATION}"
+  customComponents:
+  - componentType: pathways_server
+    image: ${SERVER_IMAGE}
+  - componentType: worker
+    image: ${SERVER_IMAGE}
+  - componentType: proxy_server
+    image: ${PROXY_IMAGE}
+    customFlags:
+      - --temporary_flags_for_debugging=temporary_flag_for_debugging_test_only_hold_death_ref=false
+  workers:
+  - type: ${TPU_MACHINE}
+    topology: ${TOPOLOGY}
+    numSlices: 1
+    # maxSliceRestarts:
+  controller:
+    deploymentMode: "colocate_head_with_workers"
+    template:
+      spec:
+        containers:
+        - name: ${USER_CONTAINER}
+          image: ${USER_CONTAINER_IMAGE}
+          imagePullPolicy: Always
+          # resources:
+          #   limits:
+          #     memory: "32Gi"
+          #   requests:
+          #     cpu: "4"
+          #     memory: "16Gi"
+          command:
+            - bash
+            - -c
+            - |
+              echo "XPK Start: $$(date)"
+              _sigterm() (kill -SIGTERM $$! 2>/dev/null)
+              trap _sigterm SIGTERM
+
+              (
+                sleep infinity
+              ) & PID=$$!
+
+              while kill -0 $$PID 2>/dev/null; do
+                sleep 5
+              done
+              wait $$PID
+              EXIT_CODE=$$?
+
+              echo "XPK End: $$(date)"
+              echo "EXIT_CODE=$$EXIT_CODE"
+              exit $$EXIT_CODE

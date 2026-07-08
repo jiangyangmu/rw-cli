@@ -89,6 +89,7 @@ export REGION="${REGION:-}"
 export ZONE="${ZONE:-}"
 export CLUSTER="${CLUSTER:-}"
 
+export JOBSET_CPU_MACHINE="${JOBSET_CPU_MACHINE:-}"
 export JOBSET_TPU_TYPE="${JOBSET_TPU_TYPE:-}"
 export JOBSET_TPU_TOPO="${JOBSET_TPU_TOPO:-}"
 
@@ -137,7 +138,7 @@ if [ ${#JOBSET_NAME} -gt 15 ]; then
 fi
 REQUIRED_VARS=(
   PROJECT REGION ZONE CLUSTER
-  JOBSET_TPU_TYPE JOBSET_TPU_TOPO JOBSET_NAME JOBSET_NAMESPACE
+  JOBSET_NAME JOBSET_NAMESPACE
   IMAGE_PATHWAYS_SERVER IMAGE_PATHWAYS_PROXY_SERVER IMAGE_WORKSPACE
   WORKSPACE_CONTAINER WORKSPACE_JOBSET_TMPL
   WORKSPACE_DISK_NAME WORKSPACE_DISK_SIZE WORKSPACE_DISK_ZONE
@@ -150,10 +151,23 @@ for var in "${REQUIRED_VARS[@]}"; do
     exit 1
   fi
 done
+if [ -n "${JOBSET_CPU_MACHINE}" ] && [ -n "${JOBSET_TPU_TYPE}" ]; then
+  echo "Error: JOBSET_CPU_MACHINE and JOBSET_TPU_TYPE are mutually exclusive."
+  exit 1
+elif [ -z "${JOBSET_CPU_MACHINE}" ] && [ -z "${JOBSET_TPU_TYPE}" ]; then
+  echo "Error: JOBSET_CPU_MACHINE or JOBSET_TPU_TYPE must be set."
+  exit 1
+elif [ -n "${JOBSET_TPU_TYPE}" ] && [ -z "${JOBSET_TPU_TOPO}" ]; then
+  echo "Error: JOBSET_TPU_TOPO is not set."
+  exit 1
+elif [ -z "${JOBSET_TPU_TYPE}" ] && [ -n "${JOBSET_TPU_TOPO}" ]; then
+  echo "Error: JOBSET_TPU_TYPE is not set."
+  exit 1
+fi
 
 # add global ignores
 GLOBAL_SYNC_EXCLUDE="lost\+found,"
-GLOBAL_SYNC_EXCLUDE+=".local,.bin,*.swp,*.lock,"
+GLOBAL_SYNC_EXCLUDE+=".local,.bin,*.swp,*.lock,.docker,"
 GLOBAL_SYNC_EXCLUDE+=".cache,.jax_cache,.pytest_cache,__pycache__,"
 GLOBAL_SYNC_EXCLUDE+=".venv,.vscode,.git,"
 GLOBAL_SYNC_EXCLUDE+="*.tar,"
@@ -199,7 +213,7 @@ generate_jobset_yaml() {
     workspace_remote_root="$WORKSPACE_REMOTE_ROOT"
   fi
 
-  _generate_jobset_yaml "${WORKSPACE_JOBSET_TMPL}" "${JOBSET_NAME}" "${JOBSET_TPU_TYPE}" "${JOBSET_TPU_TOPO}" "${IMAGE_PATHWAYS_SERVER}" "${IMAGE_PATHWAYS_PROXY_SERVER}" "${WORKSPACE_CONTAINER}" "${IMAGE_WORKSPACE}" "${workspace_disk_pvc_name}" "${workspace_remote_root}"
+  _generate_jobset_yaml "${WORKSPACE_JOBSET_TMPL}" "${JOBSET_NAME}" "${JOBSET_CPU_MACHINE}" "${JOBSET_TPU_TYPE}" "${JOBSET_TPU_TOPO}" "${IMAGE_PATHWAYS_SERVER}" "${IMAGE_PATHWAYS_PROXY_SERVER}" "${WORKSPACE_CONTAINER}" "${IMAGE_WORKSPACE}" "${workspace_disk_pvc_name}" "${workspace_remote_root}"
 }
 
 generate_pv_yaml() {
@@ -245,7 +259,12 @@ if [ -z "$1" ]; then
   echo "cluster:   ${CLUSTER}"
   echo "namespace: ${JOBSET_NAMESPACE}"
   echo "jobset:    ${JOBSET_NAME}"
-  echo "tpu:       ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
+
+  [[ -n "${JOBSET_CPU_MACHINE}" ]] \
+  && echo "cpu:       ${JOBSET_CPU_MACHINE}"
+  [[ -n "${JOBSET_TPU_TYPE}" ]] \
+  && echo "tpu:       ${JOBSET_TPU_TYPE}:${JOBSET_TPU_TOPO}"
+
   echo "tmpl:      ${WORKSPACE_JOBSET_TMPL}"
 
   [[ -n "$WORKSPACE_DISK_NAME" ]] \
@@ -284,7 +303,7 @@ while true; do
     kubectl get jobs -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME"
     ;;
   list-jobs-all)
-    kubectl get jobs -o wide
+    kubectl get jobs | egrep 'Running|Suspended'
     ;;
   list-pods)
     kubectl get pods -l jobset.sigs.k8s.io/jobset-name="$JOBSET_NAME"
@@ -330,7 +349,7 @@ while true; do
 
     # run in a subshell to allow ctrl-c interrupt
     (
-      until WORKLOAD=$(kubectl get workloads | grep "$JOBSET_NAME" | awk '{print $1}') && [ -n "$WORKLOAD" ]; do
+      until WORKLOAD=$(kubectl get jobsets | grep "$JOBSET_NAME" | awk '{print $1}') && [ -n "$WORKLOAD" ]; do
         echo -n "."; sleep 1
       done
       echo
@@ -342,7 +361,7 @@ while true; do
           echo -n "."; sleep 1
         done
         if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
-          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; exit 1
         fi
         echo "SlicesCreated"
 
@@ -353,7 +372,7 @@ while true; do
           echo -n "."; sleep 1
         done
         if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
-          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; exit 1
         fi
         echo "Admitted"
       else
@@ -363,7 +382,7 @@ while true; do
           echo -n "."; sleep 1
         done
         if kubectl describe workload "$WORKLOAD" | egrep -q "$error_regex"; then
-          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; continue
+          kubectl describe workload "$WORKLOAD" | egrep "$error_regex"; exit 1
         fi
         echo "Admitted"
       fi
