@@ -20,11 +20,12 @@ export JOBSET_NAMESPACE="default"
 
 ## container images
 
-# export IMAGE_PATHWAYS_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/gke/ksadi/unsanitized_server@sha256:bea35fb014edf250718ce32820777ceb943dfdcf08a593b3fb762ad9ea433fdc'
-export IMAGE_PATHWAYS_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images/pathways/server:latest'
-
-# export IMAGE_PATHWAYS_PROXY_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/gke/ksadi/unsanitized_proxy_server@sha256:e5ad4ef0ec907ba2378394f59c4ba074a82231112c03d7f80d7c4a38b19c043c'
-export IMAGE_PATHWAYS_PROXY_SERVER='us-docker.pkg.dev/cloud-tpu-v2-images/pathways/proxy_server:latest'
+# -- base image --
+# export IMAGE_PATHWAYS_SERVER='us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_server@sha256:c9c6c7dd4447b17d7213228c8d35959e34af0cefb5980e99daf97c1bcff78c41'
+# export IMAGE_PATHWAYS_PROXY_SERVER='us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_proxy_server@sha256:92d08baf74756265bfcad7b4b106836fcd183a61377918bb068b61ae1cbdf0e9'
+# -- test image --
+export IMAGE_PATHWAYS_SERVER='us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_server@sha256:1b743bc9c6a5ee6d4f7a2c35ea31375371b9fd6cabc4791c44afeeba2849e237'
+export IMAGE_PATHWAYS_PROXY_SERVER='us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu/tunix/unsanitized_proxy_server@sha256:c243fdd5ee52ef0f1d21165cf737540de54760882f82be358897f0b444c104bd'
 
 # export IMAGE_PATHWAYS_SIDECAR='us-docker.pkg.dev/cloud-tpu-v2-images-dev/pathways/colocated_python_server:jax-0.9.1'
 
