@@ -1,0 +1,110 @@
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: ${JOBSET_NAME}
+  namespace: default
+  annotations:
+    jobset.sigs.k8s.io/hack: 'true'
+spec:
+  failurePolicy:
+    restartStrategy: Recreate
+  network:
+    enableDNSHostnames: true
+    publishNotReadyAddresses: true
+  replicatedJobs:
+  - name: worker
+    replicas: ${REPLICAS}
+    template:
+      # metadata:
+      #   labels:
+      #     kueue.x-k8s.io/queue-name: multislice-queue
+      spec:
+        backoffLimit: 2048000
+        completionMode: Indexed
+        completions: ${COMPLETIONS}
+        parallelism: ${PARALLELISM}
+        template:
+          metadata:
+            annotations:
+              cloud.google.com/gke-tpu-slice-topology: ${TOPOLOGY}
+              kueue.x-k8s.io/podset-required-topology: cloud.google.com/gce-topology-block
+              kueue.x-k8s.io/podset-slice-required-topology: cloud.google.com/gke-tpu-partition-${PODSET_SLICE_TOPOLOGY}-id
+              kueue.x-k8s.io/podset-slice-size: "${PODSET_SLICE_SIZE}"
+              cloud.google.com/skip-tpu-webhook-check: "true"
+              kueue.x-k8s.io/safe-to-forcefully-delete: "true"
+          spec:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: cloud.google.com/gke-tpu-partition-4x4x4-state
+                      operator: In
+                      values:
+                      - HEALTHY
+                      - DEGRADED
+                    - key: cloud.google.com/gke-nodepool
+                      operator: NotIn
+                      values:
+                        - bodaborg-super-xpk-x8p-np-5
+            tolerations:
+            - key: "google.com/tpu"
+              operator: "Equal"
+              value: "present"
+              effect: "NoSchedule"
+            # priorityClassName: medium
+            nodeSelector:
+              cloud.google.com/gke-tpu-accelerator: ${TPU_TYPE}
+              # cloud.google.com/gke-tpu-topology: ${TOPOLOGY}
+              # cloud.google.com/reservation-name: ghostfish-x8pc5rgxmnn1g
+            hostNetwork: true
+            dnsPolicy: ClusterFirstWithHostNet
+            containers:
+            - name: jax-tpu
+              image: vllm/vllm-tpu:latest
+              imagePullPolicy: IfNotPresent
+              restartPolicy: OnFailure
+              command:
+                - bash
+                - -c
+                - |
+                  echo "XPK Start: $$(date)"
+                  _sigterm() (kill -SIGTERM $$! 2>/dev/null)
+                  trap _sigterm SIGTERM
+
+                  (
+                    sleep infinity
+                  ) & PID=$$!
+
+                  while kill -0 $$PID 2>/dev/null; do
+                    sleep 5
+                  done
+                  wait $$PID
+                  EXIT_CODE=$$?
+
+                  echo "XPK End: $$(date)"
+                  echo "EXIT_CODE=$$EXIT_CODE"
+                  exit $$EXIT_CODE
+              env:
+              - name: JAX_PLATFORMS
+                value: tpu
+              resources:
+                limits:
+                  google.com/tpu: "4"
+                requests:
+                  google.com/tpu: "4"
+              volumeMounts:
+              - mountPath: /tmp
+                name: shared-tmp
+            restartPolicy: OnFailure
+            terminationGracePeriodSeconds: 10
+            volumes:
+            - name: shared-tmp
+              hostPath:
+                path: /tmp
+                type: DirectoryOrCreate
+  startupPolicy:
+    startupPolicyOrder: AnyOrder
+  successPolicy:
+    operator: All
+  suspend: false
