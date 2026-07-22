@@ -32,7 +32,7 @@ export IMAGE_WORKSPACE="us-central1-docker.pkg.dev/cloud-tpu-multipod-dev/yangmu
 
 ## remote workspace
 
-export WORKSPACE_CONTAINER="workspace-main"
+export WORKSPACE_CONTAINER="main"
 export WORKSPACE_USER="${USER%_google_com}"
 
 export WORKSPACE_JOBSET_TMPL="yamls/jobset-tmpl.$CLUSTER.pathways.yaml"
@@ -70,12 +70,14 @@ while true; do
   role_idx=${role_idx:-0}
   if (($role_idx >= 0 && $role_idx <= 3)); then
     export JOBSET_NAME="rollout-${role_idx}"
+    export JOBSET_CPU_MACHINE=""
     export JOBSET_TPU_TYPE="tpuv5e"
     export JOBSET_TPU_TOPO="4x4"
     export WORKSPACE_JOBSET_TMPL="yamls/jobset-tmpl.$CLUSTER.pathways.yaml"
     break
   elif [[ "$role_idx" == "4" ]]; then
     export JOBSET_NAME="trainer"
+    export JOBSET_CPU_MACHINE=""
     export JOBSET_TPU_TYPE="tpuv5"
     export JOBSET_TPU_TOPO="2x2x2"
     export WORKSPACE_JOBSET_TMPL="yamls/jobset-tmpl.$CLUSTER.pathways.yaml"
